@@ -18,7 +18,7 @@ VPN端口映射工具是一个简单易用的Linux服务器端口转发解决方
 ### 自动安装（推荐）
 
 ```bash
-wget -N https://raw.githubusercontent.com/PanJX02/port_mapping/refs/heads/main/install.sh && sudo bash install.sh
+wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh
 ```
 
 ### 手动安装
@@ -26,7 +26,7 @@ wget -N https://raw.githubusercontent.com/PanJX02/port_mapping/refs/heads/main/i
 1. 下载主脚本：
 
 ```bash
-sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/port_mapping/refs/heads/main/vpn.sh
+sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh
 sudo chmod +x /usr/local/bin/vpn
 ```
 
@@ -143,7 +143,7 @@ sudo vpn uninstall
 2. 确保GitHub可访问
 3. 尝试手动更新：
    ```bash
-   sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/port_mapping/refs/heads/main/vpn.sh
+   sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh
    sudo chmod +x /usr/local/bin/vpn
    ```
 
