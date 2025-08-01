@@ -11,7 +11,7 @@ trap 'echo "执行过程中出现错误，请检查日志"; exit 1' ERR
 
 # 配置信息
 VERSION="1.0.1"
-SCRIPTURL="https://raw.githubusercontent.com/PanJX02/portmapping/refs/heads/main/vpn.sh"
+SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/usr/local/bin"
 SCRIPTNAME="vpn"
 CONFIGDIR="/etc/vpn"
@@ -554,7 +554,7 @@ uninstall() {
     logmsg "INFO" "VPN端口映射工具卸载完成"
     
     printmsg $GREEN "VPN端口映射工具已成功卸载!"
-    printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/portmapping/refs/heads/main/install.sh && bash install.sh"
+    printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && bash install.sh"
 }
 
 # 检查依赖
