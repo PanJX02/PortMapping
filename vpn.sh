@@ -82,7 +82,7 @@ checkupdate() {
 # 显示版本信息
 showversion() {
     printmsg $BLUE "VPN端口映射工具 v$VERSION"
-    printmsg $BLUE "作者: AI Assistant"
+    printmsg $BLUE "作者: PanJX02"
     printmsg $BLUE "项目地址: https://github.com/PanJX02/PortMapping"
 }
 # 显示帮助信息
