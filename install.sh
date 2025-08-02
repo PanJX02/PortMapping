@@ -17,12 +17,12 @@ fi
 
 # 脚本URL
 SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
-INSTALL_DIR="/usr/local/bin"
-SCRIPT_NAME="vpn"
+INSTALL_DIR="/etc/vpn"
+SCRIPT_NAME="vpn.sh"
 CONFIG_DIR="/etc/vpn"
 CONFIG_FILE="$CONFIG_DIR/portforward.conf"
 LOG_DIR="/etc/vpn/log"
-LOGFILE="$LOG_DIR/install.log"
+LOG_FILE="$LOG_DIR/install.log"
 VERSION="1.3.0"
 
 # 颜色定义
@@ -126,10 +126,10 @@ download_script() {
     mkdir -p $INSTALL_DIR
     
     # 下载脚本
-    wget -N -O $INSTALL_DIR/$SCRIPT_NAME $SCRIPT_URL
+    wget -N -O "$INSTALL_DIR/$SCRIPT_NAME" "$SCRIPT_URL"
     
     if [[ $? -eq 0 ]]; then
-        chmod +x $INSTALL_DIR/$SCRIPT_NAME
+        chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
         print_msg $GREEN "脚本下载成功: $INSTALL_DIR/$SCRIPT_NAME"
     else
         print_msg $RED "脚本下载失败"
@@ -208,21 +208,21 @@ show_completion() {
     print_msg $GREEN "=========================================="
     echo
     print_msg $YELLOW "使用方法:"
-    echo "  vpn                          # 交互式菜单"
-    echo "  vpn <服务端口> <起始端口> <结束端口>  # 直接指定端口"
-    echo "  vpn off                      # 取消映射"
-    echo "  vpn status                   # 查看状态"
-    echo "  vpn update                   # 检查更新"
-    echo "  vpn version                  # 显示版本"
-    echo "  vpn help                     # 显示帮助"
+    echo "  /etc/vpn/vpn.sh                          # 交互式菜单"
+    echo "  /etc/vpn/vpn.sh <服务端口> <起始端口> <结束端口>  # 直接指定端口"
+    echo "  /etc/vpn/vpn.sh off                      # 取消映射"
+    echo "  /etc/vpn/vpn.sh status                   # 查看状态"
+    echo "  /etc/vpn/vpn.sh update                   # 检查更新"
+    echo "  /etc/vpn/vpn.sh version                  # 显示版本"
+    echo "  /etc/vpn/vpn.sh help                     # 显示帮助"
     echo ""
     print_msg $BLUE "更新安装脚本:"
     echo "  wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
     echo
     print_msg $YELLOW "示例:"
-    echo "  sudo vpn                     # 交互式输入"
-    echo "  sudo vpn 8080 10000 20000    # 将外部10000-20000端口映射到内部8080端口"
-    echo "  sudo vpn off                 # 取消映射"
+    echo "  sudo /etc/vpn/vpn.sh                     # 交互式输入"
+    echo "  sudo /etc/vpn/vpn.sh 8080 10000 20000    # 将外部10000-20000端口映射到内部8080端口"
+    echo "  sudo /etc/vpn/vpn.sh off                 # 取消映射"
     echo
     print_msg $BLUE "项目地址: https://github.com/PanJX02/port_mapping"
 }
@@ -232,9 +232,12 @@ create_cron_job() {
     print_msg $YELLOW "正在设置自动更新检查..."
     
     # 创建每周自动更新检查的cron任务
-    (crontab -l 2>/dev/null | grep -v "$SCRIPT_NAME update --cron"; echo "0 0 * * 0 $INSTALL_DIR/$SCRIPT_NAME update --cron") | crontab -
-    
-    print_msg $GREEN "自动更新检查已设置为每周执行一次"
+    if command -v crontab &> /dev/null; then
+        (crontab -l 2>/dev/null | grep -v "$SCRIPT_NAME update --cron"; echo "0 0 * * 0 $INSTALL_DIR/$SCRIPT_NAME update --cron") | crontab -
+        print_msg $GREEN "自动更新检查已设置为每周执行一次"
+    else
+        print_msg $YELLOW "系统未安装 crontab，跳过定时任务设置"
+    fi
 }
 
 # 备份现有配置
