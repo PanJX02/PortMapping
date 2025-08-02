@@ -903,7 +903,7 @@ initconfig() {
     fi
     
     # 检查配置文件与iptables规则的一致性
-    local config_count=$(read_all_mappings | grep -v '^ | wc -l)
+    local config_count=$(read_all_mappings | grep -v '^$' | wc -l)
     local rule_count=$(iptables -t nat -L PREROUTING | grep -c "$RULECOMMENT" 2>/dev/null || echo "0")
     
     if [[ "$config_count" -ne "$rule_count" ]]; then

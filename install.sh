@@ -23,7 +23,7 @@ CONFIG_DIR="/etc/vpn"
 CONFIG_FILE="$CONFIG_DIR/portforward.conf"
 LOG_DIR="/var/log/vpn"
 LOG_FILE="$LOG_DIR/portforward.log"
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 # 颜色定义
 RED='\033[0;31m'
