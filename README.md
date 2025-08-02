@@ -1,11 +1,11 @@
-# VPN端口映射工具
+# Hysteria2端口跳跃工具
 
 [![版本](https://img.shields.io/badge/版本-1.0.2-blue.svg)](https://github.com/PanJX02/PortMapping)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/PortMapping/blob/main/LICENSE)
 
 ## 项目简介
 
-VPN端口映射工具是一个简单易用的Linux服务器端口转发解决方案，专为VPN环境设计。它允许您将服务器上的一个或多个端口范围映射到指定的服务端口，支持TCP和UDP协议，并提供IP限制、流量统计和日志记录等功能。
+Hysteria2端口跳跃工具是专为V2bX和PPanel-node设计的Hysteria2节点端口跳跃解决方案。它允许您为Hysteria2节点配置端口跳跃功能，通过将多个外部端口映射到Hysteria2服务端口，实现客户端自动端口切换，有效应对网络封锁和QoS限制。本工具特别优化了对V2bX面板和PPanel-node的支持，提供一键配置端口跳跃范围的功能。
 
 ## 系统要求
 
@@ -74,30 +74,30 @@ sudo vpn
 
 菜单选项包括：
 
-1. 添加新的端口映射
-2. 删除特定端口映射
-3. 取消所有端口映射
-4. 查看当前映射状态
+1. 为Hysteria2节点添加端口跳跃
+2. 删除特定Hysteria2端口跳跃配置
+3. 取消所有端口跳跃配置
+4. 查看当前Hysteria2端口跳跃状态
 5. 查看流量统计
 6. 检查更新
 7. 查看日志
 8. 显示版本信息
-9. 卸载VPN端口映射工具
+9. 卸载Hysteria2端口跳跃工具
 0. 退出
 
 ### 命令行参数
 
 ```bash
-# 添加端口映射（将外部10000-20000端口映射到内部8080端口）
-sudo vpn 8080 10000 20000
+# 为Hysteria2节点添加端口跳跃（将外部10000-20000端口映射到Hysteria2的443端口）
+sudo vpn 443 10000 20000
 
-# 添加带IP限制的端口映射
-sudo vpn 8080 10000 20000 192.168.1.100,192.168.1.101
+# 为V2bX/PPanel-node的Hysteria2节点配置端口跳跃
+sudo vpn 443 10000 20000
 
-# 取消所有端口映射
+# 取消所有Hysteria2端口跳跃配置
 sudo vpn off
 
-# 查看当前映射状态
+# 查看当前Hysteria2端口跳跃状态
 sudo vpn status
 
 # 查看日志
@@ -112,26 +112,26 @@ sudo vpn version
 # 显示帮助信息
 sudo vpn help
 
-# 卸载工具
+# 卸载Hysteria2端口跳跃工具
 sudo vpn uninstall
 ```
 
 ## 功能特点
 
-- **多组端口映射**：支持同时配置多个不同的端口映射规则
-- **协议选择**：支持TCP、UDP或两者同时映射
-- **IP限制**：可以限制只允许特定IP地址访问映射端口
-- **流量统计**：查看每个映射的流量使用情况
-- **日志记录**：详细记录所有操作和状态变化
-- **自动更新**：每周自动检查更新
-- **交互式菜单**：简单易用的命令行界面
-- **命令行参数**：支持通过命令行直接操作
-- **配置备份**：自动备份现有配置
-- **多系统支持**：兼容多种Linux发行版
+- **Hysteria2优化**：专为Hysteria2协议优化的端口跳跃配置
+- **V2bX兼容**：完美支持V2bX面板的Hysteria2节点配置
+- **PPanel-node支持**：特别适配PPanel-node的端口跳跃需求
+- **一键端口跳跃**：快速配置多个端口映射到Hysteria2服务
+- **UDP协议优化**：针对Hysteria2的UDP传输进行特殊优化
+- **端口范围灵活**：支持任意端口范围的跳跃配置
+- **实时监控**：查看端口跳跃状态和流量使用情况
+- **自动配置备份**：每次修改前自动备份现有配置
+- **防封锁机制**：通过端口跳跃有效应对网络封锁
+- **多系统支持**：兼容主流Linux发行版
 
 ## 常见问题
 
-### 端口映射不生效
+### Hysteria2端口跳跃不生效
 
 1. 检查iptables服务是否正在运行：
    ```bash
@@ -143,10 +143,21 @@ sudo vpn uninstall
    sudo iptables -L -n
    ```
 
-3. 查看日志文件获取详细信息：
+3. 确认Hysteria2服务正在监听正确端口：
+   ```bash
+   sudo netstat -tulnp | grep hysteria
+   ```
+
+4. 查看日志文件获取详细信息：
    ```bash
    sudo cat /var/log/vpn/portforward.log
    ```
+
+### V2bX/PPanel-node集成问题
+
+1. 确保在面板中配置的Hysteria2端口与工具映射的目标端口一致
+2. 检查面板生成的客户端配置是否包含正确的端口跳跃范围
+3. 验证客户端是否能够连接到跳跃端口范围内的任意端口
 
 ### 更新失败
 
