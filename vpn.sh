@@ -105,8 +105,7 @@ addrules() {
     # 清除旧规则
     deleterules
     
-    # 添加新规则
-    iptables -t nat -A PREROUTING -p tcp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment "$RULECOMMENT"
+    # 添加新规则 (仅UDP)
     iptables -t nat -A PREROUTING -p udp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment "$RULECOMMENT"
     
     # 保存规则
@@ -146,19 +145,34 @@ deleterules() {
 
 # 显示当前状态
 showstatus() {
-    printmsg $BLUE "当前端口映射状态:"
+    printmsg $BLUE "===== 当前端口映射状态 ====="
+    echo
     
     if [[ -f $CONFIGFILE ]] && [[ -s $CONFIGFILE ]]; then
         local service_port start_port end_port
         read service_port start_port end_port < $CONFIGFILE
-        printmsg $GREEN "活动映射: $start_port-$end_port -> $service_port"
+        
+        printmsg $GREEN "✓ 活动映射已配置"
+        echo
+        printmsg $BLUE "映射详情:"
+        echo "  └─ 端口范围: $start_port-$end_port"
+        echo "  └─ 服务端口: $service_port"
+        echo "  └─ 协议类型: UDP"
+        echo
         
         # 显示iptables规则
-        printmsg $BLUE "iptables规则:"
+        printmsg $BLUE "iptables规则详情:"
         iptables -t nat -L PREROUTING | grep "$RULECOMMENT"
     else
-        printmsg $YELLOW "没有活动的端口映射"
+        printmsg $YELLOW "✗ 当前没有活动的端口映射"
+        echo
+        printmsg $BLUE "您可以通过以下方式添加映射:"
+        echo "  1. 使用交互式菜单中的选项 1"
+        echo "  2. 直接运行命令: $SCRIPTNAME <服务端口> <起始端口> <结束端口>"
+        echo
+        printmsg $BLUE "示例: $SCRIPTNAME 8080 10000 20000"
     fi
+    echo
 }
 
 # 显示交互式菜单
