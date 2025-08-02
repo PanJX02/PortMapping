@@ -2,7 +2,7 @@
 
 # VPN端口映射工具安装脚本
 # 作者: PanJX02
-# 版本: 1.2.0
+# 版本: 1.3.0
 # 日期: 2025-08-01
 
 # 设置错误处理
@@ -23,7 +23,7 @@ CONFIG_DIR="/etc/vpn"
 CONFIG_FILE="$CONFIG_DIR/portforward.conf"
 LOG_DIR="/etc/vpn/log"
 LOGFILE="$LOG_DIR/install.log"
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 # 颜色定义
 RED='\033[0;31m'
