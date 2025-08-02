@@ -10,7 +10,7 @@ set -e
 trap 'echo "安装过程中出现错误，退出安装"; exit 1' ERR
 
 # 脚本URL
-SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/portmapping/refs/heads/main/vpn.sh"
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="vpn"
 CONFIG_DIR="/etc/vpn"
