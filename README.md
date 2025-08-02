@@ -159,8 +159,4 @@ sudo vpn uninstall
 
 ## 许可证
 
-本项目采用MIT许可证。详情请参阅[LICENSE](https://github.com/PanJX02/port_mapping/blob/main/LICENSE)文件。
-
-## 项目地址
-
-[https://github.com/PanJX02/PortMapping](https://github.com/PanJX02/PortMapping)
+本项目采用MIT许可证。详情请参阅[LICENSE](https://github.com/PanJX02/PortMapping/blob/main/LICENSE)文件。
