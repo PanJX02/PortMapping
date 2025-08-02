@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # VPN端口映射工具
-# 作者: AI Assistant  
+# 作者: PanJX02  
 # 版本: 1.1.0
 # 日期: 2025-08-02
 
@@ -69,7 +69,7 @@ checkupdate() {
 # 显示版本信息
 showversion() {
     printmsg $BLUE "VPN端口映射工具 v$VERSION"
-    printmsg $BLUE "作者: AI Assistant"
+    printmsg $BLUE "作者: PanJX02"
     printmsg $BLUE "项目地址: https://github.com/PanJX02/PortMapping"
 }
 
