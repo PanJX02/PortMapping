@@ -9,7 +9,7 @@
 
 ## 系统要求
 
-- Linux操作系统（已测试：Ubuntu、Debian、CentOS、RHEL、Fedora、Arch Linux）
+- Linux操作系统（已测试：Ubuntu、Debian）
 - Root权限
 - 基本工具：bash、wget、iptables、curl、jq
 
