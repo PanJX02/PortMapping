@@ -1,10 +1,10 @@
 #!/bin/bash
 # VPN端口映射工具
 # 作者: PanJX02
-# 版本: 1.2.0
+# 版本: 1.3.0
 # 日期: 2025-08-02
 # 配置信息
-VERSION="1.2.0"
+VERSION="1.3.0"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 # --- 修改为与安装脚本一致的路径 ---
 INSTALLDIR="/etc/vpn"
