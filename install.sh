@@ -16,7 +16,7 @@ if [[ "$1" == "--self-update" ]]; then
 fi
 
 # 脚本URL
-SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="vpn"
 CONFIG_DIR="/etc/vpn"
@@ -217,7 +217,7 @@ show_completion() {
     echo "  vpn help                     # 显示帮助"
     echo ""
     print_msg $BLUE "更新安装脚本:"
-    echo "  wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh"
+    echo "  wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
     echo
     print_msg $YELLOW "示例:"
     echo "  sudo vpn                     # 交互式输入"
