@@ -214,14 +214,17 @@ showstatus() {
     
     if [[ -f $CONFIGFILE ]] && [[ -s $CONFIGFILE ]]; then
         local rule_count=0
-        printmsg $GREEN "✓ 活动映射已配置"
-        echo
+        local has_valid_rules=false
         
         # 显示所有映射规则
         printmsg $BLUE "映射规则列表:"
+        
+        # 读取并过滤有效的规则行
         while IFS=' ' read -r rule_id service_port start_port end_port comment; do
-            if [[ -n "$rule_id" ]]; then
+            # 检查是否为有效的规则行（包含8位规则ID和数字端口）
+            if [[ "$rule_id" =~ ^[a-z0-9]{8}$ ]] && [[ "$service_port" =~ ^[0-9]+$ ]] && [[ "$start_port" =~ ^[0-9]+$ ]] && [[ "$end_port" =~ ^[0-9]+$ ]]; then
                 ((rule_count++))
+                has_valid_rules=true
                 printmsg $GREEN "$rule_count. ID: $rule_id"
                 echo "   └─ 端口范围: $start_port-$end_port"
                 echo "   └─ 服务端口: $service_port"
@@ -229,11 +232,25 @@ showstatus() {
                 echo "   └─ 描述: $comment"
                 echo
             fi
-        done < <(grep -v '^$' $CONFIGFILE)
+        done < <(grep -v '^$' $CONFIGFILE 2>/dev/null)
+        
+        if [[ "$has_valid_rules" == true ]]; then
+            printmsg $GREEN "✓ 共发现 $rule_count 条活动映射规则"
+        else
+            printmsg $YELLOW "✗ 当前没有活动的端口映射"
+            echo
+            printmsg $BLUE "您可以通过以下方式添加映射:"
+            echo "  1. 使用交互式菜单中的选项 1"
+            echo "  2. 直接运行命令: $SCRIPTNAME <服务端口> <起始端口> <结束端口>"
+            echo
+            printmsg $BLUE "示例: $SCRIPTNAME 8080 10000 20000"
+        fi
         
         # 显示iptables规则
+        echo
         printmsg $BLUE "iptables规则详情:"
-        iptables -t nat -L PREROUTING | grep "$RULECOMMENT"
+        local iptables_rules=$(iptables -t nat -L PREROUTING | grep "$RULECOMMENT" || echo "无相关规则")
+        echo "$iptables_rules"
     else
         printmsg $YELLOW "✗ 当前没有活动的端口映射"
         echo
@@ -263,7 +280,8 @@ show_delete_menu() {
     local index=0
     
     while IFS=' ' read -r rule_id service_port start_port end_port comment; do
-        if [[ -n "$rule_id" ]]; then
+        # 检查是否为有效的规则行
+        if [[ "$rule_id" =~ ^[a-z0-9]{8}$ ]] && [[ "$service_port" =~ ^[0-9]+$ ]] && [[ "$start_port" =~ ^[0-9]+$ ]] && [[ "$end_port" =~ ^[0-9]+$ ]]; then
             rules+=("$rule_id $service_port $start_port $end_port $comment")
             rule_ids+=("$rule_id")
             ((index++))
@@ -408,7 +426,7 @@ uninstall() {
     
     # 删除所有端口映射规则
     printmsg $YELLOW "删除所有端口映射规则..."
-    deleterules
+    delete_all_rules
     
     # 删除配置文件和目录
     printmsg $YELLOW "删除配置文件和目录..."
@@ -433,6 +451,18 @@ main() {
     
     # 确保配置目录存在
     mkdir -p "$CONFIGDIR"
+    
+    # 清理旧版本配置文件（如果存在）
+    if [[ -f $CONFIGFILE ]]; then
+        # 备份旧配置
+        cp "$CONFIGFILE" "$CONFIGFILE.bak.$(date +%s)" 2>/dev/null || true
+        
+        # 清理配置文件，只保留有效规则
+        local temp_file=$(mktemp)
+        grep -E '^[a-z0-9]{8}[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+' "$CONFIGFILE" > "$temp_file" 2>/dev/null || true
+        cat "$temp_file" > "$CONFIGFILE"
+        rm -f "$temp_file"
+    fi
     
     # 处理命令行参数
     case $# in
