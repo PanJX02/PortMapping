@@ -6,7 +6,7 @@
 # 日期: 2025-08-01
 
 # 配置信息
-VERSION="1.0.2"
+VERSION="1.1.0"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/usr/local/bin"
 SCRIPTNAME="vpn"
@@ -87,13 +87,24 @@ showhelp() {
     printmsg $GREEN "  uninstall      卸载VPN端口映射工具"
     printmsg $GREEN "  help           显示此帮助信息"
     echo
+    printmsg $BLUE "功能说明:"
+    printmsg $GREEN "  - 支持添加多条端口映射规则"
+    printmsg $GREEN "  - 支持选择性删除单条规则或全部删除"
+    printmsg $GREEN "  - 每条规则都有唯一ID便于管理"
+    echo
     printmsg $BLUE "示例:"
     printmsg $GREEN "  sudo vpn                     进入交互式菜单"
     printmsg $GREEN "  sudo vpn 8080 10000 20000   映射10000-20000端口到8080"
+    printmsg $GREEN "  sudo vpn 443 30000 40000    映射30000-40000端口到443"
     printmsg $GREEN "  sudo vpn off                 取消所有映射"
     printmsg $GREEN "  sudo vpn status              查看当前状态"
     printmsg $GREEN "  sudo vpn update              检查更新"
     printmsg $GREEN "  sudo vpn uninstall           卸载工具"
+}
+
+# 生成唯一规则ID
+generate_rule_id() {
+    echo "$(date +%s%N | sha256sum | head -c 8)"
 }
 
 # 添加iptables规则
@@ -101,12 +112,24 @@ addrules() {
     local service_port=$1
     local start_port=$2
     local end_port=$3
+    local rule_id=$(generate_rule_id)
     
-    # 清除旧规则
-    deleterules
+    # 检查端口是否已被映射
+    if [[ -f $CONFIGFILE ]]; then
+        while IFS=' ' read -r id sport start end comment; do
+            if [[ "$sport" == "$service_port" ]] && [[ "$start" == "$start_port" ]] && [[ "$end" == "$end_port" ]]; then
+                printmsg $YELLOW "警告: 相同的映射规则已存在"
+                return 1
+            fi
+            if [[ "$start_port" -le "$end" ]] && [[ "$end_port" -ge "$start" ]]; then
+                printmsg $YELLOW "警告: 端口范围 $start_port-$end_port 与现有规则 $start-$end 重叠"
+                return 1
+            fi
+        done < <(grep -v '^$' $CONFIGFILE 2>/dev/null || true)
+    fi
     
     # 添加新规则 (仅UDP)
-    iptables -t nat -A PREROUTING -p udp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment "$RULECOMMENT"
+    iptables -t nat -A PREROUTING -p udp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment "$RULECOMMENT-$rule_id"
     
     # 保存规则
     if command -v netfilter-persistent &> /dev/null; then
@@ -116,14 +139,46 @@ addrules() {
     fi
     
     # 保存配置
-    echo "$service_port $start_port $end_port" > $CONFIGFILE
+    echo "$rule_id $service_port $start_port $end_port 映射规则" >> $CONFIGFILE
     
-    printmsg $GREEN "端口映射已添加: $start_port-$end_port -> $service_port"
+    printmsg $GREEN "端口映射已添加: $start_port-$end_port -> $service_port (ID: $rule_id)"
 }
 
-# 删除iptables规则
-deleterules() {
-    # 查找并删除规则
+# 删除指定ID的iptables规则
+delete_rule_by_id() {
+    local rule_id=$1
+    
+    # 查找并删除指定ID的规则
+    local rules=$(iptables -t nat -L PREROUTING --line-numbers | grep "$RULECOMMENT-$rule_id" | awk '{print $1}' | sort -nr)
+    
+    if [[ -n "$rules" ]]; then
+        while read -r rule; do
+            if [[ -n "$rule" ]]; then
+                iptables -t nat -D PREROUTING "$rule"
+            fi
+        done <<< "$rules"
+        
+        # 保存规则
+        if command -v netfilter-persistent &> /dev/null; then
+            netfilter-persistent save
+        elif command -v iptables-save &> /dev/null; then
+            iptables-save > $IPTABLESRULES
+        fi
+        
+        # 从配置文件中删除该规则
+        sed -i "/^$rule_id /d" $CONFIGFILE
+        
+        printmsg $GREEN "规则 $rule_id 已删除"
+        return 0
+    else
+        printmsg $RED "未找到规则 $rule_id"
+        return 1
+    fi
+}
+
+# 删除所有iptables规则
+delete_all_rules() {
+    # 查找并删除所有规则
     local rules=$(iptables -t nat -L PREROUTING --line-numbers | grep "$RULECOMMENT" | awk '{print $1}' | sort -nr)
     
     if [[ -n "$rules" ]]; then
@@ -147,22 +202,34 @@ deleterules() {
     printmsg $GREEN "所有端口映射已删除"
 }
 
+# 删除iptables规则（兼容旧版本）
+deleterules() {
+    delete_all_rules
+}
+
 # 显示当前状态
 showstatus() {
     printmsg $BLUE "===== 当前端口映射状态 ====="
     echo
     
     if [[ -f $CONFIGFILE ]] && [[ -s $CONFIGFILE ]]; then
-        local service_port start_port end_port
-        read service_port start_port end_port < $CONFIGFILE
-        
+        local rule_count=0
         printmsg $GREEN "✓ 活动映射已配置"
         echo
-        printmsg $BLUE "映射详情:"
-        echo "  └─ 端口范围: $start_port-$end_port"
-        echo "  └─ 服务端口: $service_port"
-        echo "  └─ 协议类型: UDP"
-        echo
+        
+        # 显示所有映射规则
+        printmsg $BLUE "映射规则列表:"
+        while IFS=' ' read -r rule_id service_port start_port end_port comment; do
+            if [[ -n "$rule_id" ]]; then
+                ((rule_count++))
+                printmsg $GREEN "$rule_count. ID: $rule_id"
+                echo "   └─ 端口范围: $start_port-$end_port"
+                echo "   └─ 服务端口: $service_port"
+                echo "   └─ 协议类型: UDP"
+                echo "   └─ 描述: $comment"
+                echo
+            fi
+        done < <(grep -v '^$' $CONFIGFILE)
         
         # 显示iptables规则
         printmsg $BLUE "iptables规则详情:"
@@ -179,6 +246,68 @@ showstatus() {
     echo
 }
 
+# 显示并选择删除规则
+show_delete_menu() {
+    if [[ ! -f $CONFIGFILE ]] || [[ ! -s $CONFIGFILE ]]; then
+        printmsg $YELLOW "当前没有活动的端口映射"
+        return 1
+    fi
+    
+    echo
+    printmsg $BLUE "===== 删除端口映射 ====="
+    echo
+    
+    # 显示所有规则
+    local rules=()
+    local rule_ids=()
+    local index=0
+    
+    while IFS=' ' read -r rule_id service_port start_port end_port comment; do
+        if [[ -n "$rule_id" ]]; then
+            rules+=("$rule_id $service_port $start_port $end_port $comment")
+            rule_ids+=("$rule_id")
+            ((index++))
+            printmsg $GREEN "$index. ID: $rule_id"
+            echo "   └─ $start_port-$end_port -> $service_port"
+            echo
+        fi
+    done < <(grep -v '^$' $CONFIGFILE)
+    
+    if [[ ${#rules[@]} -eq 0 ]]; then
+        printmsg $YELLOW "没有可删除的规则"
+        return 1
+    fi
+    
+    printmsg $GREEN "0. 取消操作"
+    printmsg $RED "A. 删除所有映射"
+    echo
+    
+    read -p "请选择要删除的规则编号 [0-${#rules[@]}] 或输入A删除所有: " choice
+    
+    case $choice in
+        0)
+            printmsg $BLUE "取消操作"
+            return 0
+            ;;
+        A|a)
+            delete_all_rules
+            return 0
+            ;;
+        [1-9]|[1-9][0-9])
+            if [[ $choice -ge 1 ]] && [[ $choice -le ${#rules[@]} ]]; then
+                local selected_index=$((choice-1))
+                local rule_id=${rule_ids[$selected_index]}
+                delete_rule_by_id "$rule_id"
+            else
+                printmsg $RED "无效选择"
+            fi
+            ;;
+        *)
+            printmsg $RED "无效选择"
+            ;;
+    esac
+}
+
 # 显示交互式菜单
 showmenu() {
     while true; do
@@ -187,8 +316,8 @@ showmenu() {
         echo
         printmsg $BLUE "===== VPN端口映射工具菜单 ====="
         echo
-        printmsg $GREEN "1. 添加/修改端口映射"
-        printmsg $GREEN "2. 取消所有端口映射"
+        printmsg $GREEN "1. 添加端口映射"
+        printmsg $GREEN "2. 取消端口映射"
         printmsg $GREEN "3. 查看当前映射状态"
         printmsg $GREEN "4. 检查更新"
         printmsg $GREEN "5. 显示版本信息"
@@ -233,7 +362,7 @@ showmenu() {
                 read -p "按Enter键继续..."
                 ;;
             2)
-                deleterules
+                show_delete_menu
                 read -p "按Enter键继续..."
                 ;;
             3)
