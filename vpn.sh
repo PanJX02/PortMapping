@@ -1,10 +1,10 @@
 #!/bin/bash
 # VPN端口映射工具
 # 作者: PanJX02
-# 版本: 1.3.0
+# 版本: 1.3.1
 # 日期: 2025-08-02
 # 配置信息
-VERSION="1.3.0"
+VERSION="1.3.1"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 # --- 修改为与安装脚本一致的路径 ---
 INSTALLDIR="/etc/vpn"
@@ -534,68 +534,55 @@ showmenu() {
         esac
     done
 }
-# 卸载函数 (已完善)
+# 卸载函数 (已修正)
 uninstall() {
     printmsg $YELLOW "正在卸载VPN端口映射工具..."
     log_action "Starting uninstallation process..."
 
     # 1. 删除所有端口映射规则
     printmsg $YELLOW "删除所有端口映射规则..."
-    delete_all_mappings # 这个函数会处理 iptables 规则和配置文件内容
+    delete_all_mappings # 这个函数会处理 iptables 规则和清空配置文件
 
-    # 2. 删除主脚本文件 (注意路径已改为 /etc/vpn)
-    printmsg $YELLOW "删除主脚本文件 ($INSTALLDIR/$SCRIPTNAME)..."
-    if [[ -f "$INSTALLDIR/$SCRIPTNAME" ]]; then
-        if rm -f "$INSTALLDIR/$SCRIPTNAME"; then
-            log_action "Removed main script file: $INSTALLDIR/$SCRIPTNAME"
-            printmsg $GREEN "主脚本文件已删除。"
-        else
-            log_action "ERROR: Failed to remove main script file: $INSTALLDIR/$SCRIPTNAME"
-            printmsg $RED "警告: 删除主脚本文件失败。"
-        fi
-    else
-        printmsg $BLUE "主脚本文件不存在，跳过删除。"
-        log_action "Main script file not found, skipping deletion: $INSTALLDIR/$SCRIPTNAME"
+    # 2. 清理配置文件和日志文件 (但不删除主目录)
+    printmsg $YELLOW "删除配置文件和日志..."
+    if [[ -f "$CONFIGFILE" ]]; then
+        rm -f "$CONFIGFILE"
+        log_action "Removed configuration file: $CONFIGFILE"
+    fi
+    if [[ -d "$(dirname "$LOGFILE")" ]]; then
+        rm -rf "$(dirname "$LOGFILE")"
+        log_action "Removed log directory: $(dirname "$LOGFILE")"
     fi
 
-    # 3. 删除整个 /etc/vpn 配置目录 (这将删除配置文件、日志目录和日志文件)
-    printmsg $YELLOW "删除配置目录 ($CONFIGDIR)..."
-    if [[ -d "$CONFIGDIR" ]]; then
-        # 增加一个安全检查，确保 CONFIGDIR 是 /etc/vpn，避免误删
-        if [[ "$CONFIGDIR" == "/etc/vpn" ]]; then
-            if rm -rf "$CONFIGDIR"; then
-                log_action "Removed configuration directory: $CONFIGDIR"
-                printmsg $GREEN "配置目录 (/etc/vpn) 已删除。"
-            else
-                log_action "ERROR: Failed to remove configuration directory: $CONFIGDIR"
-                printmsg $RED "警告: 删除配置目录失败。"
-            fi
-        else
-            log_action "ERROR: CONFIGDIR is not /etc/vpn, skipping directory removal for safety: $CONFIGDIR"
-            printmsg $RED "错误: 配置目录路径异常，为安全起见未执行删除 ($CONFIGDIR)。"
-        fi
-    else
-        printmsg $BLUE "配置目录不存在，跳过删除。"
-        log_action "Configuration directory not found, skipping deletion: $CONFIGDIR"
-    fi
-
-    # 4. 清理定时任务 (如果安装脚本设置了的话)
-    #    注意：根据当前安装脚本，未设置定时任务，因此此步骤可省略或保留以防万一。
-    #    如果将来安装脚本设置了定时任务，请取消下面的注释并调整匹配模式。
+    # 3. 清理定时任务 (如果存在)
     # printmsg $YELLOW "清理可能存在的定时任务..."
-    # if command -v crontab &> /dev/null; then
-    #     (crontab -l 2>/dev/null | grep -v "$INSTALLDIR/$SCRIPTNAME update --cron") | crontab -
-    #     log_action "Attempted to remove cron job for updates."
-    #     printmsg $GREEN "已尝试清理定时更新任务 (如果存在)。"
-    # else
-    #     printmsg $BLUE "系统未安装 crontab，跳过定时任务清理。"
-    #     log_action "Crontab not found, skipping cron job removal."
-    # fi
+    # (crontab -l 2>/dev/null | grep -v "$INSTALLDIR/$SCRIPTNAME") | crontab -
+    # log_action "Attempted to remove cron job."
 
-    printmsg $GREEN "VPN端口映射工具已成功卸载!"
-    log_action "Uninstallation completed successfully!"
+    # 4. 创建一个后台子进程，延迟执行最后的删除操作
+    #    这样可以让主脚本先退出，解除对文件和目录的占用
+    (
+        # 等待2秒，确保主脚本已经完全退出
+        sleep 2
+        # 删除脚本文件本身
+        if [[ -f "$INSTALLDIR/$SCRIPTNAME" ]]; then
+            rm -f "$INSTALLDIR/$SCRIPTNAME"
+        fi
+        # 删除空的 /etc/vpn 目录
+        # 使用 rmdir 尝试删除，如果目录非空（不太可能，但为了安全），则用 rm -rf
+        rmdir "$CONFIGDIR" 2>/dev/null || rm -rf "$CONFIGDIR" 2>/dev/null
+    ) &
+
+    # 使用 disown 命令，使后台任务与当前终端脱钩，防止终端关闭时任务被杀掉
+    # 这确保了即使通过 SSH 执行脚本，关闭窗口后，清理任务也能完成
+    disown
+
+    printmsg $GREEN "卸载程序已启动，将在几秒钟内完成清理。"
+    log_action "Uninstallation cleanup process has been dispatched."
     printmsg $BLUE "感谢您使用本工具。如需重新安装，请运行安装脚本。"
     printmsg $BLUE "重新安装命令: wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
+    
+    # 注意：这里函数执行完毕后，主脚本会退出，然后后台的延迟任务开始执行
 }
 
 # 初始化配置
