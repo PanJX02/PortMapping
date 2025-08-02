@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # VPN端口映射工具
-# 作者: AI Assistant
-# 版本: 1.0.0
-# 日期: 2025-08-01
+# 作者: AI Assistant  
+# 版本: 1.0.3
+# 日期: 2025-08-02
 
 # 配置信息
-VERSION="1.0.2"
+VERSION="1.0.3"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/usr/local/bin"
 SCRIPTNAME="vpn"
@@ -96,6 +96,40 @@ showhelp() {
     printmsg $GREEN "  sudo vpn uninstall           卸载工具"
 }
 
+# 验证配置文件格式
+validateconfig() {
+    if [[ ! -f "$CONFIGFILE" ]]; then
+        return 1
+    fi
+    
+    # 检查文件是否为空
+    if [[ ! -s "$CONFIGFILE" ]]; then
+        return 1
+    fi
+    
+    # 读取配置文件内容
+    local content=$(cat "$CONFIGFILE")
+    
+    # 检查是否包含注释或非数字内容
+    if [[ "$content" =~ ^[[:space:]]*# ]] || [[ "$content" =~ [^0-9\ \t\n] ]]; then
+        printmsg $YELLOW "检测到无效的配置文件格式，正在清理..."
+        > "$CONFIGFILE"
+        return 1
+    fi
+    
+    # 验证配置格式 (应该是三个数字)
+    local service_port start_port end_port
+    read service_port start_port end_port <<< "$content"
+    
+    if [[ ! "$service_port" =~ ^[0-9]+$ ]] || [[ ! "$start_port" =~ ^[0-9]+$ ]] || [[ ! "$end_port" =~ ^[0-9]+$ ]]; then
+        printmsg $YELLOW "检测到无效的端口配置，正在清理..."
+        > "$CONFIGFILE"
+        return 1
+    fi
+    
+    return 0
+}
+
 # 添加iptables规则
 addrules() {
     local service_port=$1
@@ -115,8 +149,11 @@ addrules() {
         iptables-save > $IPTABLESRULES
     fi
     
-    # 保存配置
-    echo "$service_port $start_port $end_port" > $CONFIGFILE
+    # 确保配置目录存在
+    mkdir -p "$CONFIGDIR"
+    
+    # 保存配置 (确保格式正确)
+    echo "$service_port $start_port $end_port" > "$CONFIGFILE"
     
     printmsg $GREEN "端口映射已添加: $start_port-$end_port -> $service_port"
 }
@@ -141,8 +178,10 @@ deleterules() {
         iptables-save > $IPTABLESRULES
     fi
     
-    # 清除配置
-    > $CONFIGFILE
+    # 清除配置文件
+    if [[ -f "$CONFIGFILE" ]]; then
+        > "$CONFIGFILE"
+    fi
     
     printmsg $GREEN "所有端口映射已删除"
 }
@@ -152,31 +191,49 @@ showstatus() {
     printmsg $BLUE "===== 当前端口映射状态 ====="
     echo
     
-    if [[ -f $CONFIGFILE ]] && [[ -s $CONFIGFILE ]]; then
+    # 验证配置文件
+    if validateconfig; then
         local service_port start_port end_port
-        read service_port start_port end_port < $CONFIGFILE
+        read service_port start_port end_port < "$CONFIGFILE"
         
-        printmsg $GREEN "✓ 活动映射已配置"
-        echo
-        printmsg $BLUE "映射详情:"
-        echo "  └─ 端口范围: $start_port-$end_port"
-        echo "  └─ 服务端口: $service_port"
-        echo "  └─ 协议类型: UDP"
-        echo
-        
-        # 显示iptables规则
-        printmsg $BLUE "iptables规则详情:"
-        iptables -t nat -L PREROUTING | grep "$RULECOMMENT"
+        # 再次验证读取的数据
+        if [[ "$service_port" =~ ^[0-9]+$ ]] && [[ "$start_port" =~ ^[0-9]+$ ]] && [[ "$end_port" =~ ^[0-9]+$ ]]; then
+            printmsg $GREEN "✓ 活动映射已配置"
+            echo
+            printmsg $BLUE "映射详情:"
+            echo "  └─ 端口范围: $start_port-$end_port"
+            echo "  └─ 服务端口: $service_port"
+            echo "  └─ 协议类型: UDP"
+            echo
+            
+            # 显示iptables规则
+            printmsg $BLUE "iptables规则详情:"
+            local rules=$(iptables -t nat -L PREROUTING | grep "$RULECOMMENT")
+            if [[ -n "$rules" ]]; then
+                echo "$rules"
+            else
+                printmsg $YELLOW "警告: 未找到对应的iptables规则，可能需要重新添加映射"
+            fi
+        else
+            printmsg $YELLOW "✗ 配置文件数据异常，正在清理..."
+            > "$CONFIGFILE"
+            showstatus_nomapping
+        fi
     else
-        printmsg $YELLOW "✗ 当前没有活动的端口映射"
-        echo
-        printmsg $BLUE "您可以通过以下方式添加映射:"
-        echo "  1. 使用交互式菜单中的选项 1"
-        echo "  2. 直接运行命令: $SCRIPTNAME <服务端口> <起始端口> <结束端口>"
-        echo
-        printmsg $BLUE "示例: $SCRIPTNAME 8080 10000 20000"
+        showstatus_nomapping
     fi
     echo
+}
+
+# 显示无映射状态
+showstatus_nomapping() {
+    printmsg $YELLOW "✗ 当前没有活动的端口映射"
+    echo
+    printmsg $BLUE "您可以通过以下方式添加映射:"
+    echo "  1. 使用交互式菜单中的选项 1"
+    echo "  2. 直接运行命令: $SCRIPTNAME <服务端口> <起始端口> <结束端口>"
+    echo
+    printmsg $BLUE "示例: $SCRIPTNAME 8080 10000 20000"
 }
 
 # 显示交互式菜单
@@ -297,13 +354,24 @@ uninstall() {
     printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
 }
 
+# 初始化配置
+initconfig() {
+    # 确保配置目录存在
+    mkdir -p "$CONFIGDIR"
+    
+    # 如果配置文件不存在或无效，创建空配置文件
+    if ! validateconfig; then
+        > "$CONFIGFILE"
+    fi
+}
+
 # 主程序
 main() {
     # 检查root权限
     checkroot
     
-    # 确保配置目录存在
-    mkdir -p "$CONFIGDIR"
+    # 初始化配置
+    initconfig
     
     # 处理命令行参数
     case $# in
