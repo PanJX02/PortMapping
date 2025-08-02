@@ -27,7 +27,7 @@ wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/in
 
 ```bash
 # 更新安装脚本并重新运行
-wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh
+wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh
 ```
 
 `-N` 参数会自动检查远程文件是否更新，只有当有新版本时才会下载覆盖本地文件。
@@ -154,7 +154,7 @@ sudo vpn uninstall
 2. 确保GitHub可访问
 3. 尝试手动更新：
    ```bash
-   sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh
+   sudo wget -O /usr/local/bin/vpn https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh
    sudo chmod +x /usr/local/bin/vpn
    ```
 
