@@ -13,7 +13,7 @@ CONFIGFILE="$CONFIGDIR/portforward.conf"
 IPTABLESRULES="/etc/iptables/rules.v4"
 RULECOMMENT="VPNPORTFORWARD"
 # 日志文件路径
-LOGFILE="/var/log/vpn_portforward.log"
+LOGFILE="$CONFIGDIR/portforward.log"
 
 # 颜色定义
 RED='\033[0;31m'
