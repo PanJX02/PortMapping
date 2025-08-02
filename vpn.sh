@@ -295,6 +295,9 @@ uninstall() {
     
     printmsg $GREEN "VPN端口映射工具已成功卸载!"
     printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh"
+    
+    # 清除shell缓存
+    hash -r 2>/dev/null || true
 }
 
 # 主程序
