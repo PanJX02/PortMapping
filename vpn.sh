@@ -6,15 +6,16 @@
 # 配置信息
 VERSION="1.2.0"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
-INSTALLDIR="/usr/local/bin"
-SCRIPTNAME="vpn"
+# --- 修改为与安装脚本一致的路径 ---
+INSTALLDIR="/etc/vpn"
+SCRIPTNAME="vpn.sh"
+# -----------------------------------
 CONFIGDIR="/etc/vpn"
 CONFIGFILE="$CONFIGDIR/portforward.conf"
 IPTABLESRULES="/etc/iptables/rules.v4"
 RULECOMMENT="VPNPORTFORWARD"
 # 日志文件路径
 LOGFILE="$CONFIGDIR/log/portforward.log"
-
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,14 +24,12 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
-
 # 打印带颜色的消息
 printmsg() {
     local color=$1
     local message=$2
     echo -e "${color}${message}${NC}"
 }
-
 # 写入日志的函数
 log_action() {
     local message=$1
@@ -41,7 +40,6 @@ log_action() {
     # 可选：同时在终端显示 (取消注释下面这行)
     # echo "$(date '+%Y-%m-%d %H:%M:%S') - $message"
 }
-
 # 检查root权限
 checkroot() {
     if [[ $EUID -ne 0 ]]; then
@@ -50,7 +48,6 @@ checkroot() {
         exit 1
     fi
 }
-
 # 检查更新
 checkupdate() {
     printmsg $YELLOW "检查更新..."
@@ -82,14 +79,12 @@ checkupdate() {
         log_action "Script is up to date: $VERSION"
     fi
 }
-
 # 显示版本信息
 showversion() {
     printmsg $BLUE "VPN端口映射工具 v$VERSION"
     printmsg $BLUE "作者: AI Assistant"
     printmsg $BLUE "项目地址: https://github.com/PanJX02/PortMapping"
 }
-
 # 显示帮助信息
 showhelp() {
     showversion
@@ -107,14 +102,13 @@ showhelp() {
     printmsg $GREEN "  help           显示此帮助信息"
     echo
     printmsg $BLUE "示例:"
-    printmsg $GREEN "  sudo vpn                     进入交互式菜单"
-    printmsg $GREEN "  sudo vpn 8080 10000 20000   映射10000-20000端口到8080"
-    printmsg $GREEN "  sudo vpn off                 取消所有映射"
-    printmsg $GREEN "  sudo vpn status              查看当前状态"
-    printmsg $GREEN "  sudo vpn update              检查更新"
-    printmsg $GREEN "  sudo vpn uninstall           卸载工具"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh                     进入交互式菜单"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh 8080 10000 20000   映射10000-20000端口到8080"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh off                 取消所有映射"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh status              查看当前状态"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh update              检查更新"
+    printmsg $GREEN "  sudo /etc/vpn/vpn.sh uninstall           卸载工具"
 }
-
 # 生成唯一的规则ID
 generate_rule_id() {
     local service_port=$1
@@ -122,7 +116,6 @@ generate_rule_id() {
     local end_port=$3
     echo "${RULECOMMENT}_${service_port}_${start_port}_${end_port}"
 }
-
 # 验证配置文件格式
 validateconfig() {
     if [[ ! -f "$CONFIGFILE" ]]; then
@@ -147,7 +140,6 @@ validateconfig() {
     done < "$CONFIGFILE"
     return 0
 }
-
 # 读取所有映射配置
 read_all_mappings() {
     local mappings=()
@@ -169,7 +161,6 @@ read_all_mappings() {
     done < "$CONFIGFILE"
     printf '%s\n' "${mappings[@]}"
 }
-
 # 检查端口范围是否冲突
 check_port_conflict() {
     local new_start=$1
@@ -198,7 +189,6 @@ check_port_conflict() {
     done
     return 0
 }
-
 # 添加单个端口映射
 add_single_mapping() {
     local service_port=$1
@@ -221,7 +211,6 @@ add_single_mapping() {
     log_action "Added port mapping: $start_port-$end_port -> $service_port"
     return 0
 }
-
 # 删除单个端口映射
 delete_single_mapping() {
     local service_port=$1
@@ -253,7 +242,6 @@ delete_single_mapping() {
     printmsg $GREEN "端口映射已删除: $start_port-$end_port -> $service_port"
     log_action "Deleted port mapping: $start_port-$end_port -> $service_port"
 }
-
 # 保存iptables规则
 save_iptables_rules() {
     if command -v netfilter-persistent &> /dev/null; then
@@ -266,7 +254,6 @@ save_iptables_rules() {
         log_action "WARNING: No method found to save iptables rules persistently"
     fi
 }
-
 # 添加端口映射菜单
 add_mapping_menu() {
     while true; do
@@ -336,7 +323,6 @@ add_mapping_menu() {
         fi
     done
 }
-
 # 删除端口映射菜单
 delete_mapping_menu() {
     while true; do
@@ -419,7 +405,6 @@ delete_mapping_menu() {
         esac
     done
 }
-
 # 删除所有端口映射
 delete_all_mappings() {
     # 删除所有相关的iptables规则
@@ -439,7 +424,6 @@ delete_all_mappings() {
     save_iptables_rules
     log_action "Deleted ALL port mappings and cleared configuration file"
 }
-
 # 显示当前状态
 showstatus() {
     printmsg $BLUE "===== 当前端口映射状态 ====="
@@ -481,7 +465,6 @@ showstatus() {
     fi
     echo
 }
-
 # 显示交互式菜单
 showmenu() {
     while true; do
@@ -551,29 +534,68 @@ showmenu() {
         esac
     done
 }
-
-# 卸载函数
+# 卸载函数 (已完善)
 uninstall() {
     printmsg $YELLOW "正在卸载VPN端口映射工具..."
     log_action "Starting uninstallation process..."
-    # 删除所有端口映射规则
+
+    # 1. 删除所有端口映射规则
     printmsg $YELLOW "删除所有端口映射规则..."
-    delete_all_mappings
-    # 删除配置文件和目录
-    printmsg $YELLOW "删除配置文件和目录..."
-    if [[ -d "$CONFIGDIR" ]]; then
-        rm -rf "$CONFIGDIR"
-        log_action "Removed configuration directory: $CONFIGDIR"
-    fi
-    # 删除主脚本文件
-    printmsg $YELLOW "删除主脚本文件..."
+    delete_all_mappings # 这个函数会处理 iptables 规则和配置文件内容
+
+    # 2. 删除主脚本文件 (注意路径已改为 /etc/vpn)
+    printmsg $YELLOW "删除主脚本文件 ($INSTALLDIR/$SCRIPTNAME)..."
     if [[ -f "$INSTALLDIR/$SCRIPTNAME" ]]; then
-        rm -f "$INSTALLDIR/$SCRIPTNAME"
-        log_action "Removed main script file: $INSTALLDIR/$SCRIPTNAME"
+        if rm -f "$INSTALLDIR/$SCRIPTNAME"; then
+            log_action "Removed main script file: $INSTALLDIR/$SCRIPTNAME"
+            printmsg $GREEN "主脚本文件已删除。"
+        else
+            log_action "ERROR: Failed to remove main script file: $INSTALLDIR/$SCRIPTNAME"
+            printmsg $RED "警告: 删除主脚本文件失败。"
+        fi
+    else
+        printmsg $BLUE "主脚本文件不存在，跳过删除。"
+        log_action "Main script file not found, skipping deletion: $INSTALLDIR/$SCRIPTNAME"
     fi
+
+    # 3. 删除整个 /etc/vpn 配置目录 (这将删除配置文件、日志目录和日志文件)
+    printmsg $YELLOW "删除配置目录 ($CONFIGDIR)..."
+    if [[ -d "$CONFIGDIR" ]]; then
+        # 增加一个安全检查，确保 CONFIGDIR 是 /etc/vpn，避免误删
+        if [[ "$CONFIGDIR" == "/etc/vpn" ]]; then
+            if rm -rf "$CONFIGDIR"; then
+                log_action "Removed configuration directory: $CONFIGDIR"
+                printmsg $GREEN "配置目录 (/etc/vpn) 已删除。"
+            else
+                log_action "ERROR: Failed to remove configuration directory: $CONFIGDIR"
+                printmsg $RED "警告: 删除配置目录失败。"
+            fi
+        else
+            log_action "ERROR: CONFIGDIR is not /etc/vpn, skipping directory removal for safety: $CONFIGDIR"
+            printmsg $RED "错误: 配置目录路径异常，为安全起见未执行删除 ($CONFIGDIR)。"
+        fi
+    else
+        printmsg $BLUE "配置目录不存在，跳过删除。"
+        log_action "Configuration directory not found, skipping deletion: $CONFIGDIR"
+    fi
+
+    # 4. 清理定时任务 (如果安装脚本设置了的话)
+    #    注意：根据当前安装脚本，未设置定时任务，因此此步骤可省略或保留以防万一。
+    #    如果将来安装脚本设置了定时任务，请取消下面的注释并调整匹配模式。
+    # printmsg $YELLOW "清理可能存在的定时任务..."
+    # if command -v crontab &> /dev/null; then
+    #     (crontab -l 2>/dev/null | grep -v "$INSTALLDIR/$SCRIPTNAME update --cron") | crontab -
+    #     log_action "Attempted to remove cron job for updates."
+    #     printmsg $GREEN "已尝试清理定时更新任务 (如果存在)。"
+    # else
+    #     printmsg $BLUE "系统未安装 crontab，跳过定时任务清理。"
+    #     log_action "Crontab not found, skipping cron job removal."
+    # fi
+
     printmsg $GREEN "VPN端口映射工具已成功卸载!"
     log_action "Uninstallation completed successfully!"
-    printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
+    printmsg $BLUE "感谢您使用本工具。如需重新安装，请运行安装脚本。"
+    printmsg $BLUE "重新安装命令: wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
 }
 
 # 初始化配置
@@ -592,12 +614,10 @@ initconfig() {
         > "$CONFIGFILE"
     fi
 }
-
 # 主程序
 main() {
     # 记录脚本启动
     log_action "Script started with arguments: $*"
-    
     # 检查root权限
     checkroot
     # 初始化配置
@@ -689,10 +709,8 @@ main() {
             exit 1
             ;;
     esac
-    
     # 记录脚本结束
     log_action "Script execution completed"
 }
-
 # 执行主程序
 main "$@"
