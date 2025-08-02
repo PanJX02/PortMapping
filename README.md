@@ -1,7 +1,7 @@
 # VPN端口映射工具
 
-[![版本](https://img.shields.io/badge/版本-1.0.1-blue.svg)](https://github.com/PanJX02/port_mapping)
-[![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/port_mapping/blob/main/LICENSE)
+[![版本](https://img.shields.io/badge/版本-1.0.2-blue.svg)](https://github.com/PanJX02/PortMappingPortMapping)
+[![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/PortMappingPortMapping/blob/main/LICENSE)
 
 ## 项目简介
 
@@ -20,6 +20,17 @@ VPN端口映射工具是一个简单易用的Linux服务器端口转发解决方
 ```bash
 wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh
 ```
+
+### 更新安装脚本
+
+如果您已经安装过本工具，可以使用以下命令更新安装脚本：
+
+```bash
+# 更新安装脚本并重新运行
+wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh
+```
+
+`-N` 参数会自动检查远程文件是否更新，只有当有新版本时才会下载覆盖本地文件。
 
 ### 手动安装
 
@@ -153,4 +164,4 @@ sudo vpn uninstall
 
 ## 项目地址
 
-[https://github.com/PanJX02/port_mapping](https://github.com/PanJX02/port_mapping)
+[https://github.com/PanJX02/PortMappingPortMapping](https://github.com/PanJX02/PortMappingPortMapping)

@@ -2,12 +2,18 @@
 
 # VPN端口映射工具安装脚本
 # 作者: AI Assistant
-# 版本: 1.0.1
+# 版本: 1.0.2
 # 日期: 2025-08-01
 
 # 设置错误处理
 set -e
 trap 'echo "安装过程中出现错误，退出安装"; exit 1' ERR
+
+# 检查是否为更新模式
+if [[ "$1" == "--self-update" ]]; then
+    echo "正在更新安装脚本..."
+    exit 0
+fi
 
 # 脚本URL
 SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh"
@@ -17,7 +23,7 @@ CONFIG_DIR="/etc/vpn"
 CONFIG_FILE="$CONFIG_DIR/portforward.conf"
 LOG_DIR="/var/log/vpn"
 LOG_FILE="$LOG_DIR/portforward.log"
-VERSION="1.0.1"
+VERSION="1.0.2"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -209,6 +215,9 @@ show_completion() {
     echo "  vpn update                   # 检查更新"
     echo "  vpn version                  # 显示版本"
     echo "  vpn help                     # 显示帮助"
+    echo ""
+    print_msg $BLUE "更新安装脚本:"
+    echo "  wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh"
     echo
     print_msg $YELLOW "示例:"
     echo "  sudo vpn                     # 交互式输入"

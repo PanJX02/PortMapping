@@ -6,7 +6,7 @@
 # 日期: 2025-08-01
 
 # 配置信息
-VERSION="1.0.0"
+VERSION="1.0.2"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/usr/local/bin"
 SCRIPTNAME="vpn"
@@ -68,7 +68,7 @@ checkupdate() {
 showversion() {
     printmsg $BLUE "VPN端口映射工具 v$VERSION"
     printmsg $BLUE "作者: AI Assistant"
-    printmsg $BLUE "项目地址: https://github.com/PanJX02/portmapping"
+    printmsg $BLUE "项目地址: https://github.com/PanJX02/PortMappingPortMapping"
 }
 
 # 显示帮助信息
@@ -290,7 +290,7 @@ uninstall() {
     fi
     
     printmsg $GREEN "VPN端口映射工具已成功卸载!"
-    printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/vpn.sh"
+    printmsg $BLUE "如需重新安装，请运行: wget -N https://raw.githubusercontent.com/PanJX02/PortMappingPortMapping/refs/heads/main/install.sh && sudo bash install.sh"
 }
 
 # 主程序
