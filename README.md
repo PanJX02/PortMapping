@@ -1,11 +1,11 @@
-# Hysteria2端口跳跃工具
+# UDP端口映射工具 - 适用于V2bX/PPanel-node的Hysteria2节点
 
 [![版本](https://img.shields.io/badge/版本-1.0.2-blue.svg)](https://github.com/PanJX02/PortMapping)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/PortMapping/blob/main/LICENSE)
 
 ## 项目简介
 
-Hysteria2端口跳跃工具是专为V2bX和PPanel-node设计的Hysteria2节点端口跳跃解决方案。它允许您为Hysteria2节点配置端口跳跃功能，通过将多个外部端口映射到Hysteria2服务端口，实现客户端自动端口切换，有效应对网络封锁和QoS限制。本工具特别优化了对V2bX面板和PPanel-node的支持，提供一键配置端口跳跃范围的功能。
+这是一个简单易用的Linux服务器端口转发工具，专为UDP协议服务（如Hysteria2）设计。它允许您将服务器上的一个或多个UDP端口范围映射到指定的服务端口，实现端口跳跃功能。特别适合为V2bX面板和PPanel-node的Hysteria2节点配置端口跳跃，通过简单的命令行界面，您可以快速配置和管理端口映射规则，支持主流Linux发行版，并提供自动持久化功能。
 
 ## 系统要求
 
@@ -74,15 +74,12 @@ sudo vpn
 
 菜单选项包括：
 
-1. 为Hysteria2节点添加端口跳跃
-2. 删除特定Hysteria2端口跳跃配置
-3. 取消所有端口跳跃配置
-4. 查看当前Hysteria2端口跳跃状态
-5. 查看流量统计
-6. 检查更新
-7. 查看日志
-8. 显示版本信息
-9. 卸载Hysteria2端口跳跃工具
+1. 添加/修改端口映射
+2. 取消所有端口映射
+3. 查看当前映射状态
+4. 检查更新
+5. 显示版本信息
+6. 卸载VPN端口映射工具
 0. 退出
 
 ### 命令行参数
@@ -94,14 +91,11 @@ sudo vpn 443 10000 20000
 # 为V2bX/PPanel-node的Hysteria2节点配置端口跳跃
 sudo vpn 443 10000 20000
 
-# 取消所有Hysteria2端口跳跃配置
+# 取消所有端口映射
 sudo vpn off
 
-# 查看当前Hysteria2端口跳跃状态
+# 查看当前映射状态
 sudo vpn status
-
-# 查看日志
-sudo vpn log
 
 # 检查更新
 sudo vpn update
@@ -112,26 +106,26 @@ sudo vpn version
 # 显示帮助信息
 sudo vpn help
 
-# 卸载Hysteria2端口跳跃工具
+# 卸载工具
 sudo vpn uninstall
 ```
 
 ## 功能特点
 
-- **Hysteria2优化**：专为Hysteria2协议优化的端口跳跃配置
-- **V2bX兼容**：完美支持V2bX面板的Hysteria2节点配置
-- **PPanel-node支持**：特别适配PPanel-node的端口跳跃需求
-- **一键端口跳跃**：快速配置多个端口映射到Hysteria2服务
-- **UDP协议优化**：针对Hysteria2的UDP传输进行特殊优化
-- **端口范围灵活**：支持任意端口范围的跳跃配置
-- **实时监控**：查看端口跳跃状态和流量使用情况
-- **自动配置备份**：每次修改前自动备份现有配置
-- **防封锁机制**：通过端口跳跃有效应对网络封锁
-- **多系统支持**：兼容主流Linux发行版
+- **UDP协议专用**：专为Hysteria2的UDP传输优化，仅支持UDP协议
+- **V2bX/PPanel-node适用**：特别适合为V2bX面板和PPanel-node的Hysteria2节点配置端口跳跃
+- **端口跳跃**：支持将端口范围映射到单个Hysteria2服务端口
+- **一键配置**：通过简单命令快速设置端口跳跃规则
+- **状态监控**：实时查看当前端口映射配置和状态
+- **自动持久化**：规则自动保存，重启后依然生效
+- **多系统支持**：兼容Ubuntu、Debian、CentOS、RHEL、Fedora、Arch Linux
+- **交互式菜单**：提供友好的命令行界面
+- **配置备份**：自动备份现有配置到/etc/vpn目录
+- **日志记录**：详细记录所有操作和状态变化
 
 ## 常见问题
 
-### Hysteria2端口跳跃不生效
+### 端口映射不生效
 
 1. 检查iptables服务是否正在运行：
    ```bash
@@ -143,21 +137,15 @@ sudo vpn uninstall
    sudo iptables -L -n
    ```
 
-3. 确认Hysteria2服务正在监听正确端口：
+3. 确认服务正在监听正确端口：
    ```bash
-   sudo netstat -tulnp | grep hysteria
+   sudo netstat -tulnp | grep <服务端口>
    ```
 
 4. 查看日志文件获取详细信息：
    ```bash
    sudo cat /var/log/vpn/portforward.log
    ```
-
-### V2bX/PPanel-node集成问题
-
-1. 确保在面板中配置的Hysteria2端口与工具映射的目标端口一致
-2. 检查面板生成的客户端配置是否包含正确的端口跳跃范围
-3. 验证客户端是否能够连接到跳跃端口范围内的任意端口
 
 ### 更新失败
 
