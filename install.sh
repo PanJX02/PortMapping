@@ -21,8 +21,8 @@ INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="vpn"
 CONFIG_DIR="/etc/vpn"
 CONFIG_FILE="$CONFIG_DIR/portforward.conf"
-LOG_DIR="/var/log/vpn"
-LOG_FILE="$LOG_DIR/portforward.log"
+LOG_DIR="/etc/vpn/log"
+LOGFILE="$LOG_DIR/install.log"
 VERSION="1.2.0"
 
 # 颜色定义
