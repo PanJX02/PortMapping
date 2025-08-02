@@ -124,11 +124,15 @@ addrules() {
 # 删除iptables规则
 deleterules() {
     # 查找并删除规则
-    while read -r rule; do
-        if [[ -n "$rule" ]]; then
-            iptables -t nat -D $rule
-        fi
-    done < <(iptables -t nat -L PREROUTING --line-numbers | grep "$RULECOMMENT" | awk '{print $1}' | sort -nr)
+    local rules=$(iptables -t nat -L PREROUTING --line-numbers | grep "$RULECOMMENT" | awk '{print $1}' | sort -nr)
+    
+    if [[ -n "$rules" ]]; then
+        while read -r rule; do
+            if [[ -n "$rule" ]]; then
+                iptables -t nat -D PREROUTING "$rule"
+            fi
+        done <<< "$rules"
+    fi
     
     # 保存规则
     if command -v netfilter-persistent &> /dev/null; then
