@@ -1,6 +1,6 @@
 # UDP端口映射工具 - 适用于V2bX/PPanel-node的Hysteria2节点
 
-[![版本](https://img.shields.io/badge/版本-1.1.0-blue.svg)](https://github.com/PanJX02/PortMapping)
+[![版本](https://img.shields.io/badge/版本-1.2.0-blue.svg)](https://github.com/PanJX02/PortMapping)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/PortMapping/blob/main/LICENSE)
 
 ## 项目简介
@@ -118,7 +118,7 @@ sudo vpn uninstall
 - **一键配置**：通过简单命令快速设置端口跳跃规则
 - **状态监控**：实时查看当前端口映射配置和状态
 - **自动持久化**：规则自动保存，重启后依然生效
-- **多系统支持**：兼容Ubuntu、Debian、CentOS、RHEL、Fedora、Arch Linux
+- **多系统支持**：兼容Ubuntu、Debian
 - **交互式菜单**：提供友好的命令行界面
 - **配置备份**：自动备份现有配置到/etc/vpn目录
 - **日志记录**：详细记录所有操作和状态变化
