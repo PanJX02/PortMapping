@@ -1,6 +1,6 @@
 # UDP端口映射工具 - 适用于V2bX/PPanel-node的Hysteria2节点
 
-[![版本](https://img.shields.io/badge/版本-1.3.1-blue.svg)](https://github.com/PanJX02/PortMapping)
+[![版本](https://img.shields.io/badge/版本-2.0.0-blue.svg)](https://github.com/PanJX02/PortMapping)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](https://github.com/PanJX02/PortMapping/blob/main/LICENSE)
 
 ## 项目简介
