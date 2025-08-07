@@ -1,12 +1,12 @@
 #!/bin/bash
-# VPN端口映射工具 (支持 IPv4 & IPv6)
+# VPN端口映射工具 (支持 IPv4 & IPv6 + 多种防火墙)
 # 作者: PanJX02 
-# 版本: 2.0.0
-# 日期: 2025-08-03
+# 版本: 2.1.0
+# 日期: 2025-08-07
 
 # --- 配置信息 ---
-VERSION="2.0.0"
-SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh" # 假设新版在此
+VERSION="2.1.0"
+SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/etc/vpn"
 SCRIPTNAME="vpn.sh"
 CONFIGDIR="/etc/vpn"
@@ -24,6 +24,9 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
+
+# --- 全局变量 ---
+FIREWALL_TYPE=""
 
 # --- 辅助函数 ---
 printmsg() {
@@ -44,6 +47,25 @@ checkroot() {
         log_action "ERROR: Root permission required"
         exit 1
     fi
+}
+
+# 检测防火墙类型
+detect_firewall() {
+    if command -v ufw &>/dev/null && [[ "$(ufw status)" != "Status: inactive" ]]; then
+        FIREWALL_TYPE="ufw"
+        printmsg $BLUE "检测到防火墙: UFW (Uncomplicated Firewall)"
+    elif systemctl is-active --quiet firewalld; then
+        FIREWALL_TYPE="firewalld"
+        printmsg $BLUE "检测到防火墙: Firewalld"
+    elif command -v iptables &>/dev/null; then
+        FIREWALL_TYPE="iptables"
+        printmsg $BLUE "使用防火墙: iptables (直接模式)"
+    else
+        printmsg $RED "错误: 未找到支持的防火墙工具"
+        log_action "ERROR: No supported firewall found"
+        exit 1
+    fi
+    log_action "Detected firewall: $FIREWALL_TYPE"
 }
 
 # --- 核心功能函数 ---
@@ -116,31 +138,112 @@ check_port_conflict() {
     return 0
 }
 
-# 保存iptables/ip6tables规则
-save_netfilter_rules() {
-    if command -v netfilter-persistent &> /dev/null; then
-        netfilter-persistent save >/dev/null 2>&1
-        log_action "Saved rules using netfilter-persistent"
-    else
-        if command -v iptables-save &> /dev/null; then
-            iptables-save > "$IPTABLESRULES"
-            log_action "Saved IPv4 rules to $IPTABLESRULES"
-        else
-            log_action "WARNING: iptables-save command not found. IPv4 rules not saved."
-        fi
-        if command -v ip6tables-save &> /dev/null; then
-            # 确保 ip6tables NAT 表已加载
-            modprobe ip6_tables
-            modprobe ip6table_nat
-            ip6tables-save > "$IP6TABLESRULES"
-            log_action "Saved IPv6 rules to $IP6TABLESRULES"
-        else
-            log_action "WARNING: ip6tables-save command not found. IPv6 rules not saved."
-        fi
+# UFW 添加端口映射规则
+add_ufw_mapping() {
+    local protocol=$1  # ipv4, ipv6, all
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    local added=0
+    
+    # 添加IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        for port in $(seq "$start_port" "$end_port"); do
+            ufw route allow in on any out on any to any port "$service_port" from any port "$port" proto udp comment "${RULECOMMENT_PREFIX}_ipv4_${service_port}_${port}"
+        done
+        printmsg $GREEN "UFW IPv4 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added UFW IPv4 mapping: $start_port-$end_port -> $service_port"
+        added=1
     fi
+    
+    # 添加IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        for port in $(seq "$start_port" "$end_port"); do
+            ufw route allow in on any out on any to any port "$service_port" from any port "$port" proto udp comment "${RULECOMMENT_PREFIX}_ipv6_${service_port}_${port}"
+        done
+        printmsg $GREEN "UFW IPv6 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added UFW IPv6 mapping: $start_port-$end_port -> $service_port"
+        added=1
+    fi
+    
+    return $((1-added))
 }
 
-# 添加单个端口映射
+# Firewalld 添加端口映射规则
+add_firewalld_mapping() {
+    local protocol=$1  # ipv4, ipv6, all
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    local added=0
+    
+    # 添加IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --add-rich-rule="rule family='ipv4' forward-port port='$start_port' protocol='udp' to-port='$service_port'"
+        else
+            firewall-cmd --permanent --add-rich-rule="rule family='ipv4' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'"
+        fi
+        printmsg $GREEN "Firewalld IPv4 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added Firewalld IPv4 mapping: $start_port-$end_port -> $service_port"
+        added=1
+    fi
+    
+    # 添加IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --add-rich-rule="rule family='ipv6' forward-port port='$start_port' protocol='udp' to-port='$service_port'"
+        else
+            firewall-cmd --permanent --add-rich-rule="rule family='ipv6' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'"
+        fi
+        printmsg $GREEN "Firewalld IPv6 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added Firewalld IPv6 mapping: $start_port-$end_port -> $service_port"
+        added=1
+    fi
+    
+    if [[ "$added" -eq 1 ]]; then
+        firewall-cmd --reload
+    fi
+    
+    return $((1-added))
+}
+
+# iptables 添加端口映射规则 (保留原有功能)
+add_iptables_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+
+    local added=0
+    # 添加IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        local rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
+        iptables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        printmsg $GREEN "iptables IPv4 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added iptables IPv4 mapping: $start_port-$end_port -> $service_port"
+        added=1
+    fi
+
+    # 添加IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        # 确保 IPv6 NAT 相关内核模块已加载
+        modprobe ip6_tables 2>/dev/null
+        modprobe ip6table_nat 2>/dev/null
+        
+        local rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
+        ip6tables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        printmsg $GREEN "ip6tables IPv6 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
+        added=1
+    fi
+
+    return $((1-added))
+}
+
+# 统一添加端口映射接口
 add_single_mapping() {
     local protocol=$1
     local service_port=$2
@@ -151,43 +254,99 @@ add_single_mapping() {
         return 1
     fi
 
-    local added=0
-    # 添加IPv4规则
-    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
-        local rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
-        iptables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
-        printmsg $GREEN "IPv4 映射已添加: $start_port-$end_port -> $service_port"
-        log_action "Added IPv4 mapping: $start_port-$end_port -> $service_port"
-        added=1
-    fi
+    local success=0
+    case "$FIREWALL_TYPE" in
+        ufw)
+            if add_ufw_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
+                success=1
+            fi
+            ;;
+        firewalld)
+            if add_firewalld_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
+                success=1
+            fi
+            ;;
+        iptables)
+            if add_iptables_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
+                success=1
+                save_netfilter_rules
+            fi
+            ;;
+        *)
+            printmsg $RED "错误: 不支持的防火墙类型 '$FIREWALL_TYPE'"
+            log_action "ERROR: Unsupported firewall type '$FIREWALL_TYPE'"
+            return 1
+            ;;
+    esac
 
-    # 添加IPv6规则
-    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-        # 确保 IPv6 NAT 相关内核模块已加载
-        modprobe ip6_tables
-        modprobe ip6table_nat
-        
-        local rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
-        ip6tables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
-        printmsg $GREEN "IPv6 映射已添加: $start_port-$end_port -> $service_port"
-        log_action "Added IPv6 mapping: $start_port-$end_port -> $service_port"
-        added=1
-    fi
-
-    if [[ "$added" -eq 1 ]]; then
+    if [[ "$success" -eq 1 ]]; then
         mkdir -p "$CONFIGDIR"
         echo "$protocol $service_port $start_port $end_port" >> "$CONFIGFILE"
-        save_netfilter_rules
         return 0
     else
-        printmsg $RED "错误: 无效的协议 '$protocol'"
-        log_action "ERROR: Invalid protocol '$protocol' for add_single_mapping"
         return 1
     fi
 }
 
-# 删除单个端口映射
-delete_single_mapping() {
+# UFW 删除端口映射规则
+delete_ufw_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    # 删除IPv4和IPv6规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        for port in $(seq "$start_port" "$end_port"); do
+            ufw --force delete route allow in on any out on any to any port "$service_port" from any port "$port" proto udp 2>/dev/null || true
+        done
+        printmsg $GREEN "UFW IPv4 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted UFW IPv4 mapping: $start_port-$end_port -> $service_port"
+    fi
+    
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        for port in $(seq "$start_port" "$end_port"); do
+            ufw --force delete route allow in on any out on any to any port "$service_port" from any port "$port" proto udp 2>/dev/null || true
+        done
+        printmsg $GREEN "UFW IPv6 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted UFW IPv6 mapping: $start_port-$end_port -> $service_port"
+    fi
+}
+
+# Firewalld 删除端口映射规则
+delete_firewalld_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    # 删除IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        else
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        fi
+        printmsg $GREEN "Firewalld IPv4 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted Firewalld IPv4 mapping: $start_port-$end_port -> $service_port"
+    fi
+    
+    # 删除IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        else
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        fi
+        printmsg $GREEN "Firewalld IPv6 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted Firewalld IPv6 mapping: $start_port-$end_port -> $service_port"
+    fi
+    
+    firewall-cmd --reload
+}
+
+# iptables 删除端口映射规则 (保留原有功能)
+delete_iptables_mapping() {
     local protocol=$1
     local service_port=$2
     local start_port=$3
@@ -199,8 +358,8 @@ delete_single_mapping() {
         local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$rule_id_v4" | awk '{print $1}' | sort -rn)
         if [[ -n "$rules_v4" ]]; then
             while read -r rule; do iptables -t nat -D PREROUTING "$rule"; done <<< "$rules_v4"
-            printmsg $GREEN "IPv4 映射已删除: $start_port-$end_port -> $service_port"
-            log_action "Deleted IPv4 mapping: $start_port-$end_port -> $service_port"
+            printmsg $GREEN "iptables IPv4 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted iptables IPv4 mapping: $start_port-$end_port -> $service_port"
         fi
     fi
 
@@ -210,10 +369,31 @@ delete_single_mapping() {
         local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$rule_id_v6" | awk '{print $1}' | sort -rn)
         if [[ -n "$rules_v6" ]]; then
             while read -r rule; do ip6tables -t nat -D PREROUTING "$rule"; done <<< "$rules_v6"
-            printmsg $GREEN "IPv6 映射已删除: $start_port-$end_port -> $service_port"
-            log_action "Deleted IPv6 mapping: $start_port-$end_port -> $service_port"
+            printmsg $GREEN "ip6tables IPv6 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
         fi
     fi
+}
+
+# 统一删除端口映射接口
+delete_single_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+
+    case "$FIREWALL_TYPE" in
+        ufw)
+            delete_ufw_mapping "$protocol" "$service_port" "$start_port" "$end_port"
+            ;;
+        firewalld)
+            delete_firewalld_mapping "$protocol" "$service_port" "$start_port" "$end_port"
+            ;;
+        iptables)
+            delete_iptables_mapping "$protocol" "$service_port" "$start_port" "$end_port"
+            save_netfilter_rules
+            ;;
+    esac
 
     # 从配置文件中删除
     if [[ -f "$CONFIGFILE" ]]; then
@@ -221,27 +401,51 @@ delete_single_mapping() {
         grep -v "^$protocol $service_port $start_port $end_port$" "$CONFIGFILE" > "$temp_file"
         mv "$temp_file" "$CONFIGFILE"
     fi
-    save_netfilter_rules
 }
 
 # 删除所有端口映射
 delete_all_mappings() {
-    # 删除所有相关的iptables规则
-    local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$RULECOMMENT_PREFIX" | awk '{print $1}' | sort -rn)
-    if [[ -n "$rules_v4" ]]; then
-        while read -r rule; do iptables -t nat -D PREROUTING "$rule"; done <<< "$rules_v4"
-    fi
-    # 删除所有相关的ip6tables规则
-    local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$RULECOMMENT_PREFIX" | awk '{print $1}' | sort -rn)
-    if [[ -n "$rules_v6" ]]; then
-        while read -r rule; do ip6tables -t nat -D PREROUTING "$rule"; done <<< "$rules_v6"
-    fi
+    local mappings
+    readarray -t mappings <<< "$(read_all_mappings)"
+    
+    for mapping in "${mappings[@]}"; do
+        if [[ -z "$mapping" ]]; then continue; fi
+        local proto svc_port start_port end_port
+        read proto svc_port start_port end_port <<< "$mapping"
+        delete_single_mapping "$proto" "$svc_port" "$start_port" "$end_port"
+    done
     
     # 清空配置文件
     if [[ -f "$CONFIGFILE" ]]; then > "$CONFIGFILE"; fi
     
-    save_netfilter_rules
     log_action "Deleted ALL port mappings (IPv4 & IPv6) and cleared configuration file"
+}
+
+# 保存iptables/ip6tables规则 (仅用于iptables模式)
+save_netfilter_rules() {
+    if [[ "$FIREWALL_TYPE" != "iptables" ]]; then
+        return 0
+    fi
+    
+    if command -v netfilter-persistent &> /dev/null; then
+        netfilter-persistent save >/dev/null 2>&1
+        log_action "Saved rules using netfilter-persistent"
+    else
+        if command -v iptables-save &> /dev/null; then
+            mkdir -p "$(dirname "$IPTABLESRULES")"
+            iptables-save > "$IPTABLESRULES"
+            log_action "Saved IPv4 rules to $IPTABLESRULES"
+        else
+            log_action "WARNING: iptables-save command not found. IPv4 rules not saved."
+        fi
+        if command -v ip6tables-save &> /dev/null; then
+            mkdir -p "$(dirname "$IP6TABLESRULES")"
+            ip6tables-save > "$IP6TABLESRULES"
+            log_action "Saved IPv6 rules to $IP6TABLESRULES"
+        else
+            log_action "WARNING: ip6tables-save command not found. IPv6 rules not saved."
+        fi
+    fi
 }
 
 # --- 菜单和用户交互 ---
@@ -250,6 +454,7 @@ delete_all_mappings() {
 add_mapping_menu() {
     clear
     printmsg $BLUE "===== 添加端口映射 ====="
+    printmsg $CYAN "当前防火墙: $FIREWALL_TYPE"
     echo
     read -p "服务端口 (目标端口): " service_port
     read -p "起始端口: " start_port
@@ -296,6 +501,7 @@ delete_mapping_menu() {
     while true; do
         clear
         printmsg $BLUE "===== 管理端口映射 ====="
+        printmsg $CYAN "当前防火墙: $FIREWALL_TYPE"
         local mappings
         readarray -t mappings <<< "$(read_all_mappings)"
         if [[ ${#mappings[@]} -eq 0 ]] || [[ -z "${mappings[0]}" ]]; then
@@ -349,6 +555,8 @@ delete_mapping_menu() {
 # 显示当前状态
 showstatus() {
     printmsg $BLUE "===== 当前端口映射状态 ====="
+    printmsg $CYAN "防火墙类型: $FIREWALL_TYPE"
+    echo
     local mappings
     readarray -t mappings <<< "$(read_all_mappings)"
     
@@ -367,16 +575,21 @@ showstatus() {
     done
     echo
     
-    local rule_count_v4=$(iptables -t nat -L PREROUTING -n | grep -c "$RULECOMMENT_PREFIX")
-    local rule_count_v6=$(ip6tables -t nat -L PREROUTING -n 2>/dev/null | grep -c "$RULECOMMENT_PREFIX")
-    printmsg $BLUE "iptables 规则: $rule_count_v4 条IPv4规则, $rule_count_v6 条IPv6规则"
-    
-    local config_count_v4=$(grep -c -E '^(ipv4|all) ' "$CONFIGFILE" 2>/dev/null || echo 0)
-    local config_count_v6=$(grep -c -E '^(ipv6|all) ' "$CONFIGFILE" 2>/dev/null || echo 0)
-    
-    if [[ "$rule_count_v4" -ne "$config_count_v4" ]] || [[ "$rule_count_v6" -ne "$config_count_v6" ]]; then
-        printmsg $YELLOW "警告: 防火墙规则数量与配置不匹配，建议使用菜单重新应用规则。"
-        log_action "WARNING: Rule/config mismatch. v4 ($rule_count_v4/$config_count_v4), v6 ($rule_count_v6/$config_count_v6)"
+    # 仅在iptables模式下显示规则统计
+    if [[ "$FIREWALL_TYPE" == "iptables" ]]; then
+        local rule_count_v4=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep -c "$RULECOMMENT_PREFIX" || echo 0)
+        local rule_count_v6=$(ip6tables -t nat -L PREROUTING -n 2>/dev/null | grep -c "$RULECOMMENT_PREFIX" || echo 0)
+        printmsg $BLUE "iptables 规则: $rule_count_v4 条IPv4规则, $rule_count_v6 条IPv6规则"
+        
+        local config_count_v4=$(grep -c -E '^(ipv4|all) ' "$CONFIGFILE" 2>/dev/null || echo 0)
+        local config_count_v6=$(grep -c -E '^(ipv6|all) ' "$CONFIGFILE" 2>/dev/null || echo 0)
+        
+        if [[ "$rule_count_v4" -ne "$config_count_v4" ]] || [[ "$rule_count_v6" -ne "$config_count_v6" ]]; then
+            printmsg $YELLOW "警告: 防火墙规则数量与配置不匹配，建议使用菜单重新应用规则。"
+            log_action "WARNING: Rule/config mismatch. v4 ($rule_count_v4/$config_count_v4), v6 ($rule_count_v6/$config_count_v6)"
+        fi
+    else
+        printmsg $BLUE "防火墙规则由 $FIREWALL_TYPE 管理"
     fi
 }
 
@@ -392,6 +605,12 @@ uninstall() {
     rm -f "$CONFIGFILE"
     rm -rf "$CONFIGDIR/log"
     log_action "Removed config and log files"
+
+    # 删除符号链接
+    if [[ -L "/usr/local/bin/vpn" ]]; then
+        rm -f "/usr/local/bin/vpn"
+        printmsg $YELLOW "已删除 vpn 命令符号链接"
+    fi
 
     (
         sleep 2
@@ -415,110 +634,110 @@ initconfig() {
     fi
 }
 
+# 检查更新
+checkupdate() {
+    printmsg $YELLOW "正在检查更新..."
+    log_action "Checking for updates..."
+    
+    local temp_script="/tmp/vpn_new_$.sh"
+    if wget -q -O "$temp_script" "$SCRIPTURL" 2>/dev/null; then
+        local current_version=$(grep '^VERSION=' "$0" | cut -d'"' -f2)
+        local remote_version=$(grep '^VERSION=' "$temp_script" | cut -d'"' -f2)
+        
+        if [[ "$current_version" != "$remote_version" ]]; then
+            printmsg $GREEN "发现新版本: $remote_version (当前版本: $current_version)"
+            read -p "是否立即更新? [y/N]: " update_confirm
+            if [[ "$update_confirm" =~ ^[Yy]$ ]]; then
+                printmsg $BLUE "正在更新..."
+                cp "$temp_script" "$INSTALLDIR/$SCRIPTNAME"
+                chmod +x "$INSTALLDIR/$SCRIPTNAME"
+                rm -f "$temp_script"
+                printmsg $GREEN "更新完成！请重新运行 vpn 命令。"
+                log_action "Updated to version $remote_version"
+                exit 0
+            fi
+        else
+            printmsg $GREEN "当前已是最新版本: $current_version"
+        fi
+        rm -f "$temp_script"
+    else
+        printmsg $RED "无法检查更新，请检查网络连接"
+        log_action "Update check failed - network issue"
+    fi
+}
+
 # 显示帮助
 showhelp() {
-    echo "VPN端口映射工具 v$VERSION (支持IPv4/IPv6)"
-    echo "用法: $0 [选项] [参数]"
+    echo "VPN端口映射工具 v$VERSION (支持IPv4/IPv6 + 多种防火墙)"
+    echo "支持的防火墙: UFW, Firewalld, iptables"
     echo
-    echo "选项:"
-    echo "  无参数                进入交互式菜单"
-    echo "  <proto> <svc> <start> <end>  添加端口映射 (proto: ipv4|ipv6|all)"
-    echo "  off                   取消所有端口映射"
-    echo "  status                显示当前映射状态"
-    echo "  update                检查并更新脚本"
-    echo "  uninstall             卸载工具"
-    echo "  help                  显示此帮助信息"
+    echo "用法: $0 [无参数进入交互式菜单]"
     echo
-    echo "示例:"
-    echo "  $0 ipv4 8080 10000 20000  # 添加 IPv4 映射"
-    echo "  $0 ipv6 8081 20001 30000  # 添加 IPv6 映射"
-    echo "  $0 all  8082 40000 50000  # 同时添加 IPv4 和 IPv6 映射"
-    echo "  $0 off                     # 取消所有映射"
+    echo "功能说明:"
+    echo "- 自动检测并适配当前系统的防火墙类型"
+    echo "- 支持 IPv4, IPv6 或同时配置两种协议"
+    echo "- 支持端口范围映射到单个服务端口"
+    echo "- 配置持久化，重启后自动恢复"
+    echo
+    echo "示例场景:"
+    echo "- 游戏服务器端口映射"
+    echo "- VPN 流量转发"
+    echo "- 负载均衡端口分发"
+    echo
+    echo "项目地址: https://github.com/PanJX02/PortMapping"
 }
 
-# 主程序
-main() {
-    log_action "Script started with args: $*"
-    checkroot
-    initconfig
-
-    case $# in
-        0) showmenu ;;
-        1)
-            case $1 in
-                off) delete_all_mappings; printmsg $GREEN "所有端口映射已删除" ;;
-                status) showstatus ;;
-                update) checkupdate ;; # checkupdate 函数未在此处提供，但保留了接口
-                uninstall) 
-                  printmsg $RED "警告: 此操作将完全卸载工具!"
-                  read -p "确定要继续吗? [y/N]: " confirm
-                  [[ "$confirm" =~ ^[Yy]$ ]] && uninstall
-                  ;;
-                help) showhelp ;;
-                *) printmsg $RED "错误: 未知参数 '$1'"; showhelp; exit 1 ;;
-            esac
-            ;;
-        4)
-            local protocol=$1 service_port=$2 start_port=$3 end_port=$4
-            if [[ ! "$protocol" =~ ^(ipv4|ipv6|all)$ ]]; then
-                printmsg $RED "错误: 协议必须是 'ipv4', 'ipv6', 或 'all'"
-                exit 1
-            fi
-            # ... (此处省略了对端口的详细命令行验证，菜单中有)
-            if add_single_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
-                printmsg $GREEN "端口映射添加成功"
-            else
-                printmsg $RED "端口映射添加失败"
-                exit 1
-            fi
-            ;;
-        *)
-            printmsg $RED "错误: 参数数量不正确"
-            showhelp
-            exit 1
-            ;;
-    esac
-    log_action "Script execution completed"
-}
-
-# 交互式主菜单 (从旧脚本移植)
+# 交互式主菜单
 showmenu() {
     while true; do
         clear
-        echo "VPN端口映射工具 v$VERSION (支持IPv4/IPv6)"
-        printmsg $BLUE "=================================="
+        echo "VPN端口映射工具 v$VERSION (支持IPv4/IPv6 + 多种防火墙)"
+        printmsg $BLUE "=========================================="
+        printmsg $CYAN "当前防火墙: $FIREWALL_TYPE"
+        printmsg $BLUE "=========================================="
         printmsg $GREEN "1. 添加端口映射"
         printmsg $YELLOW "2. 管理/删除端口映射"
         printmsg $CYAN "3. 查看当前映射状态"
         printmsg $PURPLE "4. 检查更新"
-        printmsg $RED "5. 卸载工具"
+        printmsg $BLUE "5. 显示帮助"
+        printmsg $RED "6. 卸载工具"
         printmsg $NC "0. 退出"
         echo
-        read -p "请选择操作 [0-5]: " choice
+        read -p "请选择操作 [0-6]: " choice
         case $choice in
             1) add_mapping_menu ;;
             2) delete_mapping_menu ;;
             3) showstatus; read -p "按Enter键继续..." ;;
-            4) checkupdate; read -p "按Enter键继续..." ;; # checkupdate 函数未在此处提供
-            5)
-              printmsg $RED "警告: 此操作将完全卸载工具!"
-              read -p "确定要继续吗? [y/N]: " confirm
-              if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                uninstall
-                exit 0
-              fi
-              ;;
-            0) exit 0 ;;
-            *) printmsg $RED "无效选择"; read -p "按Enter键继续..." ;;
+            4) checkupdate; read -p "按Enter键继续..." ;;
+            5) showhelp; read -p "按Enter键继续..." ;;
+            6)
+                printmsg $RED "警告: 此操作将完全卸载工具!"
+                read -p "确定要继续吗? [y/N]: " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    uninstall
+                    exit 0
+                fi
+                ;;
+            0) 
+                printmsg $BLUE "感谢使用！"
+                exit 0 
+                ;;
+            *) 
+                printmsg $RED "无效选择"
+                read -p "按Enter键继续..." 
+                ;;
         esac
     done
 }
-# 定义一个空的 checkupdate 以免报错
-checkupdate() {
-    printmsg $YELLOW "检查更新功能暂未实现。"
-    log_action "Update check skipped (not implemented)."
-}
 
+# 主程序
+main() {
+    log_action "Script started - VPN Port Mapping Tool v$VERSION"
+    checkroot
+    detect_firewall
+    initconfig
+    showmenu
+}
 
 # 执行主程序
 main "$@"
