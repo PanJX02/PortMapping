@@ -138,7 +138,7 @@ check_port_conflict() {
     return 0
 }
 
-# UFW 添加端口映射规则
+# UFW 添加端口映射规则 (优化版 - 直接使用iptables)
 add_ufw_mapping() {
     local protocol=$1  # ipv4, ipv6, all
     local service_port=$2
@@ -147,27 +147,165 @@ add_ufw_mapping() {
     
     local added=0
     
-    # 添加IPv4规则
+    printmsg $YELLOW "UFW 不直接支持端口范围映射，使用底层 iptables 规则..."
+    
+    # 添加IPv4规则 - 直接使用iptables
     if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
-        for port in $(seq "$start_port" "$end_port"); do
-            ufw route allow in on any out on any to any port "$service_port" from any port "$port" proto udp comment "${RULECOMMENT_PREFIX}_ipv4_${service_port}_${port}"
-        done
-        printmsg $GREEN "UFW IPv4 映射已添加: $start_port-$end_port -> $service_port"
-        log_action "Added UFW IPv4 mapping: $start_port-$end_port -> $service_port"
+        local rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
+        
+        # 检查是否需要在UFW规则前插入
+        local ufw_line=$(iptables -t nat -L PREROUTING --line-numbers | grep "ufw-before" | head -1 | awk '{print $1}')
+        if [[ -n "$ufw_line" ]]; then
+            iptables -t nat -I PREROUTING "$ufw_line" -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        else
+            iptables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        fi
+        
+        printmsg $GREEN "UFW+iptables IPv4 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added UFW+iptables IPv4 mapping: $start_port-$end_port -> $service_port"
         added=1
     fi
     
-    # 添加IPv6规则
+    # 添加IPv6规则 - 直接使用ip6tables
     if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-        for port in $(seq "$start_port" "$end_port"); do
-            ufw route allow in on any out on any to any port "$service_port" from any port "$port" proto udp comment "${RULECOMMENT_PREFIX}_ipv6_${service_port}_${port}"
-        done
-        printmsg $GREEN "UFW IPv6 映射已添加: $start_port-$end_port -> $service_port"
-        log_action "Added UFW IPv6 mapping: $start_port-$end_port -> $service_port"
+        # 确保 IPv6 NAT 相关内核模块已加载
+        modprobe ip6_tables 2>/dev/null
+        modprobe ip6table_nat 2>/dev/null
+        
+        local rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
+        
+        # 检查是否需要在UFW规则前插入
+        local ufw_line_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "ufw-before" | head -1 | awk '{print $1}')
+        if [[ -n "$ufw_line_v6" ]]; then
+            ip6tables -t nat -I PREROUTING "$ufw_line_v6" -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        else
+            ip6tables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j DNAT --to-destination ":$service_port" -m comment --comment "$rule_id"
+        fi
+        
+        printmsg $GREEN "UFW+ip6tables IPv6 映射已添加: $start_port-$end_port -> $service_port"
+        log_action "Added UFW+ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
         added=1
+    fi
+    
+    # 创建 UFW 配置备份以便手动持久化
+    if [[ "$added" -eq 1 ]]; then
+        create_ufw_persistent_rules "$protocol" "$service_port" "$start_port" "$end_port" "add"
     fi
     
     return $((1-added))
+}
+
+# UFW 删除端口映射规则 (优化版)
+delete_ufw_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    # 删除IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        local rule_id_v4=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
+        local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$rule_id_v4" | awk '{print $1}' | sort -rn)
+        if [[ -n "$rules_v4" ]]; then
+            while read -r rule; do 
+                iptables -t nat -D PREROUTING "$rule"
+            done <<< "$rules_v4"
+            printmsg $GREEN "UFW+iptables IPv4 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted UFW+iptables IPv4 mapping: $start_port-$end_port -> $service_port"
+        fi
+    fi
+    
+    # 删除IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        local rule_id_v6=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
+        local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$rule_id_v6" | awk '{print $1}' | sort -rn)
+        if [[ -n "$rules_v6" ]]; then
+            while read -r rule; do 
+                ip6tables -t nat -D PREROUTING "$rule"
+            done <<< "$rules_v6"
+            printmsg $GREEN "UFW+ip6tables IPv6 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted UFW+ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
+        fi
+    fi
+    
+    # 清理持久化配置
+    create_ufw_persistent_rules "$protocol" "$service_port" "$start_port" "$end_port" "delete"
+}
+
+# UFW 持久化规则管理
+create_ufw_persistent_rules() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    local action=$5  # add 或 delete
+    
+    local ufw_rules_file="$CONFIGDIR/ufw_custom_rules.sh"
+    
+    if [[ "$action" == "add" ]]; then
+        mkdir -p "$CONFIGDIR"
+        
+        # 创建或更新自定义规则文件
+        if [[ ! -f "$ufw_rules_file" ]]; then
+            cat > "$ufw_rules_file" << 'EOF'
+#!/bin/bash
+# UFW 自定义端口映射规则
+# 此文件由 VPN 端口映射工具自动生成和管理
+# 建议将此脚本添加到系统启动脚本中以确保规则持久化
+
+EOF
+            chmod +x "$ufw_rules_file"
+        fi
+        
+        # 添加规则到文件
+        local rule_comment="# Mapping: $protocol $service_port $start_port $end_port"
+        if ! grep -q "$rule_comment" "$ufw_rules_file"; then
+            echo "" >> "$ufw_rules_file"
+            echo "$rule_comment" >> "$ufw_rules_file"
+            
+            if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+                local rule_id_v4=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
+                echo "iptables -t nat -A PREROUTING -p udp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment \"$rule_id_v4\"" >> "$ufw_rules_file"
+            fi
+            
+            if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+                local rule_id_v6=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
+                echo "modprobe ip6_tables 2>/dev/null" >> "$ufw_rules_file"
+                echo "modprobe ip6table_nat 2>/dev/null" >> "$ufw_rules_file"
+                echo "ip6tables -t nat -A PREROUTING -p udp --dport $start_port:$end_port -j DNAT --to-destination :$service_port -m comment --comment \"$rule_id_v6\"" >> "$ufw_rules_file"
+            fi
+        fi
+        
+        printmsg $BLUE "提示: UFW 模式下的规则已保存到 $ufw_rules_file"
+        printmsg $BLUE "建议将此脚本添加到 /etc/rc.local 或 crontab @reboot 以确保重启后生效"
+        
+    elif [[ "$action" == "delete" ]]; then
+        if [[ -f "$ufw_rules_file" ]]; then
+            # 从文件中删除对应规则
+            local rule_comment="# Mapping: $protocol $service_port $start_port $end_port"
+            local temp_file=$(mktemp)
+            
+            # 删除匹配的注释行和后续的iptables命令
+            awk -v comment="$rule_comment" '
+                $0 == comment {
+                    skip = 1
+                    next
+                }
+                skip && /^(iptables|ip6tables|modprobe)/ {
+                    next
+                }
+                skip && /^$/ {
+                    skip = 0
+                    next
+                }
+                !skip {
+                    print
+                }
+            ' "$ufw_rules_file" > "$temp_file"
+            
+            mv "$temp_file" "$ufw_rules_file"
+        fi
+    fi
 }
 
 # Firewalld 添加端口映射规则
