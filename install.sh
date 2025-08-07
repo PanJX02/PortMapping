@@ -1,9 +1,9 @@
 #!/bin/bash
-# VPN 端口映射工具 - 智能安装程序 V1.4
-# 功能: 从在线URL下载主脚本，并强制将其安装为 'portmap' 命令。
+# VPN 端口映射工具 - 智能安装程序 V1.5 (稳定版)
+# 功能: 从在线URL下载主脚本，并强制将其内部变量修改后，安装为 'portmap' 命令。
 
 # --- 配置 ---
-# 我们期望安装到系统中的命令名称和相关路径
+# 我们期望安装到系统中的最终命令名称和相关路径
 DESIRED_COMMAND_NAME="portmap" 
 INSTALL_PATH="/usr/local/bin/${DESIRED_COMMAND_NAME}"
 CONFIG_DIR_BASE="/etc/${DESIRED_COMMAND_NAME}"
@@ -31,7 +31,7 @@ check_root() {
 
 # --- 核心安装逻辑 ---
 
-# 1. 检测操作系统类型 (此处省略，与之前版本相同)
+# 1. 检测操作系统类型
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -41,7 +41,7 @@ detect_os() {
     fi
 }
 
-# 2. 按需安装依赖 (此处省略，与之前版本相同)
+# 2. 按需安装依赖
 install_dependencies() {
     printmsg "正在检测防火墙和所需依赖..." "$YELLOW"
     if systemctl is-active --quiet firewalld; then
@@ -92,11 +92,11 @@ create_main_script() {
 
     printmsg "下载成功。正在修改脚本以适配 '${DESIRED_COMMAND_NAME}' 命令..." "$YELLOW"
 
-    # ✨ 关键步骤: 使用 sed 修改脚本内容
+    # ✨✨✨ 关键步骤: 使用 sed 在保存前修改脚本内容 ✨✨✨
     # 1. 查找 'SCRIPTNAME="..."' 这一行，并替换成我们期望的值。
-    # 2. 查找 'CONFIGDIR=...' 这一行，并替换成我们期望的值。
-    sed -e "s/^$SCRIPTNAME *= *$\".*\"/\1\"${DESIRED_COMMAND_NAME}\"/" \
-        -e "s|^$CONFIGDIR *= *$\".*\"|\1\"${CONFIG_DIR_BASE}\"|" \
+    # 2. 查找 'CONFIGDIR=...' 这一行，并替换成我们期望的值，以保持一致性。
+    sed -e "s/^\(SCRIPTNAME *= *\)\".*\"/\1\"${DESIRED_COMMAND_NAME}\"/" \
+        -e "s|^\(CONFIGDIR *= *\)\".*\"|\1\"${CONFIG_DIR_BASE}\"|" \
         "$temp_script" > "$INSTALL_PATH"
 
     rm -f "$temp_script" # 删除临时文件
@@ -110,10 +110,14 @@ create_main_script() {
 main() {
     check_root
     
-    # 清理可能存在的旧版本残留
+    # 清理可能存在的旧版本残留，避免冲突
     if [ -f "/usr/local/bin/vpn-port-map" ]; then
         printmsg "检测到旧的 'vpn-port-map' 文件，正在清理..." "$YELLOW"
         rm -f "/usr/local/bin/vpn-port-map"
+    fi
+     if [ -d "/etc/vpn-port-map" ]; then
+        printmsg "检测到旧的 '/etc/vpn-port-map' 目录，正在清理..." "$YELLOW"
+        rm -rf "/etc/vpn-port-map"
     fi
     
     if [ -f "$INSTALL_PATH" ]; then
@@ -134,18 +138,5 @@ main() {
     printmsg "    sudo ${DESIRED_COMMAND_NAME}" "$YELLOW"
     echo
 }
-
-# --- 程序入口 ---
-# 检查是否请求卸载
-if [[ "$1" == "uninstall" ]]; then
-    if [[ ! -f "$INSTALL_PATH" ]]; then
-        printmsg "未找到已安装的 portmap。无需卸载。" "$YELLOW"
-        exit 0
-    fi
-    # 将卸载任务委托给已安装的脚本自身
-    printmsg "正在调用已安装脚本的卸载程序..." "$YELLOW"
-    sudo "$INSTALL_PATH" uninstall
-    exit $?
-fi
 
 main
