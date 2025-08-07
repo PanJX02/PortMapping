@@ -1,11 +1,11 @@
 #!/bin/bash
 # VPN端口映射工具 (支持 IPv4 & IPv6, 适配 UFW/Firewalld/iptables)
 # 作者: PanJX02 & AI Assistant
-# 版本: 3.1.0
-# 日期: 2023-11-15
+# 版本: 3.2.0 (已根据用户需求修订)
+# 日期: 2024-05-22
 
 # --- 配置信息 ---
-VERSION="3.1.0"
+VERSION="3.2.0"
 INSTALLDIR="/usr/local/bin"
 SCRIPTNAME="vpn-port-map" # 使用更符合Linux惯例的名称
 CONFIGDIR="/etc/vpn-port-map"
@@ -23,6 +23,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # --- 辅助函数 ---
@@ -73,37 +74,39 @@ fw_add_rule() {
     
     case $FIREWALL_MANAGER in
         "firewalld")
-            # <!-- 修改开始: firewalld 支持按协议添加 -->
-            local success=true
+            local success_v4=true success_v6=true
             if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
                 firewall-cmd --permanent --zone=public --add-forward-port=port=${start_port}-${end_port}:proto=udp:toport=${service_port} --set-family=ipv4 >/dev/null 2>&1
-                if [[ $? -ne 0 ]]; then success=false; fi
+                if [[ $? -ne 0 ]]; then success_v4=false; fi
             fi
             if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
                 firewall-cmd --permanent --zone=public --add-forward-port=port=${start_port}-${end_port}:proto=udp:toport=${service_port} --set-family=ipv6 >/dev/null 2>&1
-                if [[ $? -ne 0 ]]; then success=false; fi
+                if [[ $? -ne 0 ]]; then success_v6=false; fi
             fi
-            $success && return 0 || return 1
-            # <!-- 修改结束 -->
+            [[ "$success_v4" == true && "$success_v6" == true ]] && return 0 || return 1
             ;;
         "ufw")
-            # UFW的NAT规则默认对v4和v6都生效
+            # <!-- 修改 -->: UFW的NAT规则默认对v4和v6都生效，因此协议总是 'all'
             rule_id=$(generate_rule_id "all" "$service_port" "$start_port" "$end_port")
             local rule_string="-A PREROUTING -p udp --dport ${start_port}:${end_port} -j REDIRECT --to-port ${service_port} -m comment --comment \"${rule_id}\""
             add_ufw_nat_rule "$rule_string"
             ;;
         "iptables")
+            local success_v4=true success_v6=true
             if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
                 iptables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id"
+                if [[ $? -ne 0 ]]; then success_v4=false; fi
             fi
             if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-                modprobe ip6_tables && modprobe ip6table_nat
+                modprobe ip6_tables &>/dev/null && modprobe ip6table_nat &>/dev/null
                 rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
                 ip6tables -t nat -A PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id"
+                if [[ $? -ne 0 ]]; then success_v6=false; fi
             fi
+            [[ "$success_v4" == true && "$success_v6" == true ]] && return 0 || return 1
             ;;
     esac
     return $?
@@ -116,23 +119,21 @@ fw_delete_rule() {
 
     case $FIREWALL_MANAGER in
         "firewalld")
-            # <!-- 修改开始: firewalld 支持按协议删除 -->
-            local success=true
+            local success_v4=true success_v6=true
             if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
                 firewall-cmd --permanent --zone=public --remove-forward-port=port=${start_port}-${end_port}:proto=udp:toport=${service_port} --set-family=ipv4 >/dev/null 2>&1
-                if [[ $? -ne 0 ]]; then success=false; fi
+                # 忽略错误，因为可能规则不存在
             fi
             if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
                 firewall-cmd --permanent --zone=public --remove-forward-port=port=${start_port}-${end_port}:proto=udp:toport=${service_port} --set-family=ipv6 >/dev/null 2>&1
-                if [[ $? -ne 0 ]]; then success=false; fi
+                # 忽略错误
             fi
-            $success && return 0 || return 1
-            # <!-- 修改结束 -->
+            return 0 # 总是返回成功，因为目的是移除
             ;;
         "ufw")
-            # UFW的规则是v4/v6共用的
+            # <!-- 修改 -->: UFW的规则是v4/v6共用的, 总是按'all'删除
             rule_id=$(generate_rule_id "all" "$service_port" "$start_port" "$end_port")
             local rule_string="-A PREROUTING -p udp --dport ${start_port}:${end_port} -j REDIRECT --to-port ${service_port} -m comment --comment \"${rule_id}\""
             delete_ufw_nat_rule "$rule_string"
@@ -140,16 +141,17 @@ fw_delete_rule() {
         "iptables")
             if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
-                local rule_to_delete
-                rule_to_delete=$(iptables -t nat -S PREROUTING | grep -- "$rule_id")
-                [[ -n "$rule_to_delete" ]] && iptables -t nat -D PREROUTING ${rule_to_delete//-A PREROUTING /}
+                while iptables -t nat -C PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id" &>/dev/null; do
+                    iptables -t nat -D PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id" &>/dev/null
+                done
             fi
             if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
                 rule_id=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
-                local rule_to_delete
-                rule_to_delete=$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -- "$rule_id")
-                [[ -n "$rule_to_delete" ]] && ip6tables -t nat -D PREROUTING ${rule_to_delete//-A PREROUTING /}
+                 while ip6tables -t nat -C PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id" &>/dev/null; do
+                    ip6tables -t nat -D PREROUTING -p udp --dport "$start_port":"$end_port" -j REDIRECT --to-port "$service_port" -m comment --comment "$rule_id" &>/dev/null
+                done
             fi
+            return 0
             ;;
     esac
     return $?
@@ -160,10 +162,10 @@ fw_apply_changes() {
     printmsg $YELLOW "正在应用防火墙规则..."
     case $FIREWALL_MANAGER in
         "firewalld")
-            firewall-cmd --reload
+            firewall-cmd --reload >/dev/null
             ;;
         "ufw")
-            ufw reload
+            ufw reload >/dev/null
             ;;
         "iptables")
             if command -v netfilter-persistent &> /dev/null; then
@@ -182,16 +184,14 @@ fw_apply_changes() {
 }
 
 # === UFW 特定处理函数 ===
-# 向 UFW 的 before.rules 添加 NAT 规则
 add_ufw_nat_rule() {
     local rule_string="$1"
     
     # 备份
-    cp "$UFW_BEFORE_RULES" "${UFW_BEFORE_RULES}.bak.$(date +%F-%T)"
+    cp "$UFW_BEFORE_RULES" "${UFW_BEFORE_RULES}.bak.$(date +%F-%T)" &>/dev/null
     
     # 确保 *nat 表存在
     if ! grep -q "^\s*\*nat" "$UFW_BEFORE_RULES"; then
-        # 在第一个 *filter 前插入完整的 nat 表结构
         sed -i '/^\s*\*filter/i \
 *nat\n\
 :PREROUTING ACCEPT [0:0]\n\
@@ -202,7 +202,7 @@ COMMIT\n' "$UFW_BEFORE_RULES"
     # 检查规则是否已存在
     if grep -qF -- "$rule_string" "$UFW_BEFORE_RULES"; then
         log_action "UFW rule already exists: $rule_string"
-        return 0 # 已经存在，视为成功
+        return 0 
     fi
 
     # 在 COMMIT 前插入规则
@@ -210,14 +210,10 @@ COMMIT\n' "$UFW_BEFORE_RULES"
     log_action "Added UFW rule: $rule_string"
 }
 
-# 从 UFW 的 before.rules 删除 NAT 规则
 delete_ufw_nat_rule() {
     local rule_string="$1"
-    # 检查规则是否存在
     if grep -qF -- "$rule_string" "$UFW_BEFORE_RULES"; then
-        # 备份
-        cp "$UFW_BEFORE_RULES" "${UFW_BEFORE_RULES}.bak.$(date +%F-%T)"
-        # 删除该行
+        cp "$UFW_BEFORE_RULES" "${UFW_BEFORE_RULES}.bak.$(date +%F-%T)" &>/dev/null
         sed -i "\#${rule_string}#d" "$UFW_BEFORE_RULES"
         log_action "Deleted UFW rule: $rule_string"
     fi
@@ -225,22 +221,18 @@ delete_ufw_nat_rule() {
 
 # --- 其他核心功能 ---
 
-# 生成唯一的规则ID
 generate_rule_id() {
     local protocol=$1 service_port=$2 start_port=$3 end_port=$4
     echo "${RULECOMMENT_PREFIX}_${protocol}_${service_port}_${start_port}_${end_port}"
 }
 
-# 读取所有映射配置
 read_all_mappings() {
     [[ ! -f "$CONFIGFILE" ]] || grep -Ev '^[[:space:]]*#|^[[:space:]]*$' "$CONFIGFILE"
 }
 
-# 检查端口范围是否冲突
 check_port_conflict() {
     local new_protocol=$1 new_service=$2 new_start=$3 new_end=$4
     
-    local mappings
     readarray -t mappings <<< "$(read_all_mappings)"
     
     for mapping in "${mappings[@]}"; do
@@ -248,15 +240,12 @@ check_port_conflict() {
         local proto svc_port start_port end_port
         read proto svc_port start_port end_port <<< "$mapping"
 
-        # 检查端口范围冲突
         if [[ "$new_start" -le "$end_port" ]] && [[ "$new_end" -ge "$start_port" ]]; then
-            # 协议冲突检查: 只有当新旧协议不同且都不是 'all' 时才允许重叠
             if ! ( [[ "$new_protocol" != "$proto" ]] && [[ "$new_protocol" != "all" ]] && [[ "$proto" != "all" ]] ); then
                 printmsg $RED "错误: 范围 $new_start-$new_end 与现有映射 ($proto) $start_port-$end_port 冲突。"
                 return 1
             fi
         fi
-        # 检查服务端口冲突
         if [[ "$new_service" -eq "$svc_port" ]]; then
             printmsg $RED "错误: 服务端口 $new_service 已被用于另一条映射。"
             return 1
@@ -265,25 +254,26 @@ check_port_conflict() {
     return 0
 }
 
-
-# 添加单个端口映射
 add_single_mapping() {
     local protocol=$1 service_port=$2 start_port=$3 end_port=$4
     
-    # 对于UFW，实际规则是all，但配置文件里按用户选择记录
-    local config_protocol=$protocol
-    if [[ "$FIREWALL_MANAGER" == "ufw" ]]; then
-        protocol="all"
-    fi
+    # <!-- 修改 -->: 区分用户选择的协议和实际执行的协议
+    local config_protocol=$protocol # 用于写入配置文件的协议 (用户意图)
+    local exec_protocol=$protocol   # 用于执行防火墙命令的协议
+    
+    if [[ "$FIREWALL_MANAGER" == "ufw" ]]; {
+        # 对于UFW，实际执行的规则总是 'all'
+        exec_protocol="all"
+    }
 
     if ! check_port_conflict "$config_protocol" "$service_port" "$start_port" "$end_port"; then
         return 1
     fi
     
-    if fw_add_rule "$protocol" "$service_port" "$start_port" "$end_port"; then
+    if fw_add_rule "$exec_protocol" "$service_port" "$start_port" "$end_port"; then
         mkdir -p "$CONFIGDIR"
-        # <!-- 修改开始: 如果是 all，分两条写入配置文件，方便管理 -->
-        if [[ "$protocol" == "all" ]] && [[ "$FIREWALL_MANAGER" != "ufw" ]]; then
+        # <!-- 修改 -->: 写入配置文件时，如果用户选'all'且非UFW，则分两行写
+        if [[ "$config_protocol" == "all" ]] && [[ "$FIREWALL_MANAGER" != "ufw" ]]; then
             echo "ipv4 $service_port $start_port $end_port" >> "$CONFIGFILE"
             echo "ipv6 $service_port $start_port $end_port" >> "$CONFIGFILE"
             log_action "Added mapping to config: ipv4/ipv6 $service_port $start_port-$end_port"
@@ -291,35 +281,35 @@ add_single_mapping() {
             echo "$config_protocol $service_port $start_port $end_port" >> "$CONFIGFILE"
             log_action "Added mapping to config: $config_protocol $service_port $start_port-$end_port"
         fi
-        # <!-- 修改结束 -->
         return 0
     else
         printmsg $RED "错误: 添加防火墙规则失败。"
-        log_action "ERROR: fw_add_rule failed for $protocol $service_port $start_port-$end_port"
+        log_action "ERROR: fw_add_rule failed for $exec_protocol $service_port $start_port-$end_port"
         return 1
     fi
 }
 
-# 删除单个端口映射
 delete_single_mapping() {
     local protocol=$1 service_port=$2 start_port=$3 end_port=$4
     
-    # <!-- 修改开始: 适配UFW的删除逻辑 -->
+    # <!-- 修改 -->: 适配UFW的删除逻辑
     local delete_protocol=$protocol
     if [[ "$FIREWALL_MANAGER" == "ufw" ]]; then
         # 无论配置文件里是ipv4/ipv6/all，UFW实际只有一条all规则
         delete_protocol="all"
     fi
-    # <!-- 修改结束 -->
 
     if fw_delete_rule "$delete_protocol" "$service_port" "$start_port" "$end_port"; then
-        # 从配置文件中删除
         if [[ -f "$CONFIGFILE" ]]; then
             local temp_file
             temp_file=$(mktemp)
-            # <!-- 修改开始: 更精确地删除行 -->
-            grep -v "^\(all\|${protocol}\) ${service_port} ${start_port} ${end_port}$" "$CONFIGFILE" > "$temp_file"
-            # <!-- 修改结束 -->
+            # <!-- 修改 -->: 更精确地删除配置行
+            # 如果删除 'all'，则同时移除对应的 'ipv4' 和 'ipv6' 行
+            if [[ "$protocol" == "all" ]]; then
+                 grep -v "^\(ipv4\|ipv6\|all\) ${service_port} ${start_port} ${end_port}$" "$CONFIGFILE" > "$temp_file"
+            else
+                 grep -v "^${protocol} ${service_port} ${start_port} ${end_port}$" "$CONFIGFILE" > "$temp_file"
+            fi
             mv "$temp_file" "$CONFIGFILE"
             log_action "Deleted mapping from config: $protocol $service_port $start_port-$end_port"
         fi
@@ -331,7 +321,6 @@ delete_single_mapping() {
     fi
 }
 
-# 删除所有端口映射
 delete_all_mappings() {
     local mappings
     readarray -t mappings <<< "$(read_all_mappings)"
@@ -342,18 +331,20 @@ delete_all_mappings() {
     fi
     
     printmsg $YELLOW "正在删除所有已配置的端口映射..."
-    local deleted_mappings=()
+    local deleted_keys=()
     for mapping in "${mappings[@]}"; do
-        # 防止重复删除（例如，all被分解为ipv4和ipv6后）
-        local key="${mapping#* }" # 使用 service_port start_port end_port作为键
-        if [[ " ${deleted_mappings[*]} " =~ " ${key} " ]]; then
+        local proto svc_port start_port end_port
+        read proto svc_port start_port end_port <<< "$mapping"
+        
+        # 使用端口和服务作为键，防止重复删除
+        local key="${svc_port} ${start_port} ${end_port}"
+        if [[ " ${deleted_keys[*]} " =~ " ${key} " ]]; then
             continue
         fi
         
-        # 对于非UFW，如果规则是ipv4或ipv6，尝试删除对应的all
-        # 简化处理：直接删除文件中的条目
-        delete_single_mapping $mapping
-        deleted_mappings+=("$key")
+        # 无论单条是ipv4还是ipv6，我们都按"all"来删除，确保彻底清理
+        delete_single_mapping "all" "$svc_port" "$start_port" "$end_port"
+        deleted_keys+=("$key")
     done
     
     # 清空配置文件以防万一
@@ -365,7 +356,6 @@ delete_all_mappings() {
 
 # --- 菜单和用户交互 ---
 
-# 添加端口映射菜单 (微调以适应新逻辑)
 add_mapping_menu() {
     clear
     printmsg $BLUE "===== 添加端口映射 (当前防火墙: $FIREWALL_MANAGER) ====="
@@ -374,7 +364,6 @@ add_mapping_menu() {
     read -p "起始端口: " start_port
     read -p "结束端口: " end_port
     
-    # 验证端口
     for port in $service_port $start_port $end_port; do
         if ! [[ "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
             printmsg $RED "错误: 端口 '$port' 无效，必须是 1-65535 之间的数字"; read -p "按回车继续..."; return
@@ -387,7 +376,6 @@ add_mapping_menu() {
          printmsg $RED "错误：服务端口不能在连接端口范围内！"; read -p "按回车继续..."; return
     fi
 
-    # <!-- 修改开始: 始终显示协议选择 -->
     printmsg $YELLOW "请选择协议类型:"
     echo "  1. 仅 IPv4"
     echo "  2. 仅 IPv6"
@@ -400,16 +388,15 @@ add_mapping_menu() {
         2) protocol="ipv6" ;;
         *) protocol="all" ;;
     esac
-    # <!-- 修改结束 -->
 
     # <!-- 新增: 对UFW的特别提示 -->
     if [[ "$FIREWALL_MANAGER" == "ufw" ]] && [[ "$protocol" != "all" ]]; then
-        printmsg $YELLOW "注意: UFW的NAT规则默认同时对IPv4和IPv6生效。您的选择 '$protocol' 将被记录，但实际规则会应用于两个协议。"
+        printmsg $YELLOW "\n注意: UFW的NAT规则默认同时对IPv4和IPv6生效。\n您的选择 '$protocol' 会被记录在配置文件中，但实际防火墙规则将应用于两个协议。"
         read -p "按Enter键确认并继续..."
     fi
 
     if add_single_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
-        printmsg $GREEN "映射已配置，正在应用更改..."
+        printmsg $GREEN "映射已添加至配置，正在应用更改..."
         fw_apply_changes
     else
         printmsg $RED "映射添加失败，请检查冲突或日志。"
@@ -417,12 +404,6 @@ add_mapping_menu() {
     read -p "按Enter键继续..."
 }
 
-
-# 省略其他未修改的函数(delete_mapping_menu, showstatus, uninstall, install_or_init, showmenu, main)以保持简洁。
-# 您只需将上面修改过的函数替换掉您原脚本中对应的函数即可。
-# 下面我将您脚本中其余未修改的部分也附上，组成一个完整的可执行文件。
-
-# 删除菜单 (复用)
 delete_mapping_menu() {
     while true; do
         clear
@@ -437,7 +418,6 @@ delete_mapping_menu() {
         local i=1
         for mapping in "${mappings[@]}"; do
             read proto svc_port start_port end_port <<< "$mapping"
-            # 统一显示为UDP
             printf "  %-3s %-7s %-20s -> %-5s (UDP)\n" "$i." "[$proto]" "$start_port-$end_port" "$svc_port"
             ((i++))
         done
@@ -463,6 +443,8 @@ delete_mapping_menu() {
                     if [[ "$confirm" =~ ^[Yy]$ ]]; then
                         if delete_single_mapping "$proto" "$svc_port" "$start_port" "$end_port"; then
                            fw_apply_changes
+                        else
+                           printmsg $RED "规则删除失败！"
                         fi
                     fi
                     read -p "按Enter键继续..."
@@ -474,8 +456,6 @@ delete_mapping_menu() {
     done
 }
 
-
-# 显示状态 (增强)
 showstatus() {
     printmsg $BLUE "===== 当前端口映射状态 ====="
     printmsg $GREEN "检测到的防火墙管理器: $FIREWALL_MANAGER"
@@ -497,10 +477,9 @@ showstatus() {
         ((i++))
     done
     echo
-    printmsg $YELLOW "注意: 以上是配置文件中的记录。请使用防火墙原生命令 (如 'sudo ufw status verbose', 'sudo firewall-cmd --list-all', 'sudo iptables -t nat -L') 确认实时规则。"
+    printmsg $YELLOW "注意: 以上是配置文件中的记录。请使用防火墙原生命令确认实时规则:\n- UFW: 'sudo ufw status verbose' 和 'cat /etc/ufw/before.rules'\n- Firewalld: 'sudo firewall-cmd --list-all'\n- iptables: 'sudo iptables -t nat -L' 和 'sudo ip6tables -t nat -L'"
 }
 
-# 卸载 (增强)
 uninstall() {
     printmsg $RED "警告: 此操作将删除所有映射规则并移除脚本自身！"
     read -p "确定要继续吗? [y/N]: " confirm
@@ -512,44 +491,44 @@ uninstall() {
     printmsg $YELLOW "正在卸载..."
     log_action "Starting uninstallation process..."
 
-    # 1. 删除所有规则
     delete_all_mappings
 
-    # 2. 删除配置文件和日志
     printmsg $YELLOW "正在删除配置文件和日志目录..."
     rm -rf "$CONFIGDIR"
     log_action "Removed config directory: $CONFIGDIR"
 
-    # 3. 删除脚本自身
     printmsg $YELLOW "正在删除脚本: $INSTALLDIR/$SCRIPTNAME"
     rm -f "$INSTALLDIR/$SCRIPTNAME"
     
     printmsg $GREEN "卸载完成。"
     log_action "Uninstallation complete."
+    exit 0
 }
 
-# 安装/初始化
 install_or_init() {
     checkroot
     mkdir -p "$CONFIGDIR"
     if [[ ! -f "$CONFIGFILE" ]]; then touch "$CONFIGFILE"; fi
 
-    # 将脚本自身复制到安装目录
     if [[ "$(realpath "$0")" != "$INSTALLDIR/$SCRIPTNAME" ]]; then
-        cp "$0" "$INSTALLDIR/$SCRIPTNAME"
-        chmod +x "$INSTALLDIR/$SCRIPTNAME"
-        printmsg $GREEN "脚本已安装到 $INSTALLDIR/$SCRIPTNAME"
-        printmsg $YELLOW "请使用 '$SCRIPTNAME' 命令运行。"
-        exit 0
+        if cp "$0" "$INSTALLDIR/$SCRIPTNAME"; then
+            chmod +x "$INSTALLDIR/$SCRIPTNAME"
+            printmsg $GREEN "脚本已安装到 $INSTALLDIR/$SCRIPTNAME"
+            printmsg $YELLOW "现在，请使用 '$SCRIPTNAME' 命令运行。"
+            exit 0
+        else
+            printmsg $RED "错误: 脚本安装失败。请检查 $INSTALLDIR 目录权限。"
+            exit 1
+        fi
     fi
     
-    # 每次运行时都检测防火墙
     detect_firewall_manager
 }
 
 
-# 主菜单
-showmenu() {
+main() {
+    install_or_init
+    
     while true; do
         clear
         echo "VPN端口映射工具 v$VERSION"
@@ -566,20 +545,11 @@ showmenu() {
             1) add_mapping_menu ;;
             2) delete_mapping_menu ;;
             3) showstatus; read -p "按Enter键继续..." ;;
-            4) uninstall; exit 0 ;;
+            4) uninstall ;;
             0) exit 0 ;;
             *) printmsg $RED "无效选择"; read -p "按Enter键继续..." ;;
         esac
     done
 }
 
-# 程序入口
-main() {
-    log_action "Script started with args: $*"
-    install_or_init
-    showmenu
-    log_action "Script execution completed"
-}
-
-# 执行主程序
 main "$@"
