@@ -69,27 +69,28 @@ detect_os() {
 # 修改后的防火墙检查函数 - 改为提示而不是强制退出
 check_firewall_conflict() {
     print_msg $YELLOW "正在检查现有防火墙..."
-    local conflict=0
+    HAS_FIREWALL=0
     local firewall_list=""
     
     if command -v ufw &>/dev/null && [[ "$(ufw status)" != "Status: inactive" ]]; then
         print_msg $YELLOW "检测到 UFW (Uncomplicated Firewall) 正在运行。"
-        conflict=1
+        HAS_FIREWALL=1
         firewall_list="${firewall_list}UFW "
     fi
     
     if systemctl is-active --quiet firewalld; then
         print_msg $YELLOW "检测到 Firewalld 正在运行。"
-        conflict=1
+        HAS_FIREWALL=1
         firewall_list="${firewall_list}Firewalld "
     fi
 
-    if [[ "$conflict" -eq 1 ]]; then
+    if [[ "$HAS_FIREWALL" -eq 1 ]]; then
         echo
         print_msg $YELLOW "========================== 重要提示 =========================="
         print_msg $CYAN "检测到以下防火墙正在运行: ${firewall_list}"
         print_msg $YELLOW "此脚本通过直接管理 iptables 和 ip6tables 工作。"
         print_msg $YELLOW "同时使用多个防火墙可能会导致规则冲突。"
+        print_msg $YELLOW "注意：将跳过 iptables-persistent 安装以避免与现有防火墙冲突。"
         echo
         print_msg $BLUE "建议操作:"
         print_msg $BLUE "• Debian/Ubuntu 用户: sudo ufw disable"
@@ -115,17 +116,29 @@ check_firewall_conflict() {
 }
 
 install_dependencies() {
-    print_msg $YELLOW "正在安装依赖: wget, iptables, 和持久化服务..."
+    print_msg $YELLOW "正在安装依赖: wget, iptables..."
     case $OS in
         debian)
             $PACKAGE_MANAGER update -y
-            # 预设 debconf 选项，避免 iptables-persistent 安装时卡住提问
-            echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
-            echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
-            $PACKAGE_MANAGER install -y wget iptables "$PERSISTENT_PKG_V4"
+            if [[ "$HAS_FIREWALL" -eq 1 ]]; then
+                print_msg $YELLOW "检测到现有防火墙，跳过 iptables-persistent 安装以避免冲突。"
+                $PACKAGE_MANAGER install -y wget iptables
+            else
+                print_msg $YELLOW "正在安装 iptables-persistent 用于规则持久化..."
+                # 预设 debconf 选项，避免 iptables-persistent 安装时卡住提问
+                echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+                echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+                $PACKAGE_MANAGER install -y wget iptables "$PERSISTENT_PKG_V4"
+            fi
             ;;
         redhat)
-            $PACKAGE_MANAGER install -y wget "$PERSISTENT_PKG_V4"
+            if [[ "$HAS_FIREWALL" -eq 1 ]]; then
+                print_msg $YELLOW "检测到现有防火墙，跳过 iptables-services 安装以避免冲突。"
+                $PACKAGE_MANAGER install -y wget
+            else
+                print_msg $YELLOW "正在安装 iptables-services 用于规则持久化..."
+                $PACKAGE_MANAGER install -y wget "$PERSISTENT_PKG_V4"
+            fi
             ;;
     esac
     print_msg $GREEN "依赖安装成功。"
@@ -170,6 +183,12 @@ setup_environment() {
 }
 
 enable_persistence() {
+    if [[ "$HAS_FIREWALL" -eq 1 ]]; then
+        print_msg $YELLOW "检测到现有防火墙，跳过 iptables 持久化服务配置。"
+        print_msg $BLUE "提示：您需要使用现有防火墙工具来管理规则持久化。"
+        return 0
+    fi
+    
     print_msg $YELLOW "正在启用 iptables & ip6tables 持久化服务..."
     # 确保iptables规则在重启后生效
     case $OS in
@@ -203,6 +222,12 @@ show_completion() {
     echo -e "  ${CYAN}sudo vpn ipv6 8080 10000 20000${NC}   (仅IPv6)"
     echo -e "  ${CYAN}sudo vpn all  8080 10000 20000${NC}   (同时用于IPv4和IPv6)"
     echo
+    if [[ "$HAS_FIREWALL" -eq 1 ]]; then
+        print_msg $YELLOW "================================ 重要提醒 ================================"
+        print_msg $CYAN "由于检测到现有防火墙，本工具创建的 iptables 规则可能不会自动持久化。"
+        print_msg $CYAN "请确保使用您的防火墙管理工具来保存规则，或手动保存 iptables 规则。"
+        echo
+    fi
     print_msg $BLUE "项目地址: https://github.com/PanJX02/PortMapping"
     echo
 }
