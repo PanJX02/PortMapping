@@ -1,10 +1,10 @@
 #!/bin/bash
-# VPN 端口映射工具 - 安全安装程序
-# 版本: 1.0.0
+# VPN 端口映射工具 - 安全安装程序 V1.1
+# 安装后的命令为 'portmap'
 
 # --- 配置 ---
-INSTALL_PATH="/usr/local/bin/vpn-port-map"
-CONFIG_DIR="/etc/vpn-port-map"
+INSTALL_PATH="/usr/local/bin/portmap"
+CONFIG_DIR="/etc/portmap"
 
 # --- 颜色和辅助函数 ---
 RED='\033[0;31m'
@@ -56,18 +56,17 @@ install_dependencies() {
         ubuntu|debian)
             printmsg "正在为 Debian/Ubuntu 安装 'iptables-persistent'..." "$YELLOW"
             apt-get update >/dev/null
-            # 安装时会自动弹出配置对话框，使用 debconf-set-selections 可以避免交互
             echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
             echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
-            apt-get install -y iptables-persistent
+            apt-get install -y iptables-persistent >/dev/null
             ;;
         centos|rhel|fedora)
             printmsg "正在为 RHEL/CentOS 安装 'iptables-services'..." "$YELLOW"
             yum install -y iptables-services >/dev/null
-            systemctl enable iptables
-            systemctl enable ip6tables
-            systemctl start iptables
-            systemctl start ip6tables
+            systemctl enable iptables &>/dev/null
+            systemctl enable ip6tables &>/dev/null
+            systemctl start iptables &>/dev/null
+            systemctl start ip6tables &>/dev/null
             ;;
         *)
             printmsg "此操作系统 ($OS) 的 iptables 持久化配置不受自动支持。请手动配置。" "$RED"
@@ -84,16 +83,16 @@ create_main_script() {
     # 注意: <<'EOF' 中的单引号至关重要，它能防止此处的变量被立即展开
 cat > "$INSTALL_PATH" <<'EOF'
 #!/bin/bash
-# VPN端口映射工具 (支持 IPv4 & IPv6, 适配 UFW/Firewalld/iptables)
+# 端口映射工具 (支持 IPv4 & IPv6, 适配 UFW/Firewalld/iptables)
 # 作者: PanJX02 & AI Assistant
-# 版本: 3.1.0 (由安装程序生成)
+# 版本: 3.2.0 (由安装程序生成)
 
 # --- 配置信息 ---
-VERSION="3.1.0"
-CONFIGDIR="/etc/vpn-port-map"
+VERSION="3.2.0"
+CONFIGDIR="/etc/portmap"
 CONFIGFILE="$CONFIGDIR/rules.conf"
 LOGFILE="$CONFIGDIR/activity.log"
-RULECOMMENT_PREFIX="VPNMAP"
+RULECOMMENT_PREFIX="PORTMAP"
 FIREWALL_MANAGER="unknown"
 
 # --- UFW 特定配置 ---
@@ -107,20 +106,9 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # --- 辅助函数 ---
-printmsg() {
-    local color=$1
-    local message=$2
-    echo -e "${color}${message}${NC}"
-}
-log_action() {
-    mkdir -p "$(dirname "$LOGFILE")" 2>/dev/null
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOGFILE"
-}
-checkroot() {
-    if [[ $EUID -ne 0 ]]; then
-        printmsg $RED "错误: 此脚本需要root权限运行。"; exit 1
-    fi
-}
+printmsg() { local c=$1; local m=$2; echo -e "${c}${m}${NC}"; }
+log_action() { mkdir -p "$(dirname "$LOGFILE")" 2>/dev/null; echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOGFILE"; }
+checkroot() { if [[ $EUID -ne 0 ]]; then printmsg $RED "错误: 此脚本需要root权限运行。"; exit 1; fi; }
 
 # --- 防火墙管理核心 ---
 detect_firewall_manager() {
@@ -162,14 +150,14 @@ fw_delete_rule() {
 fw_apply_changes() {
     printmsg $YELLOW "正在应用防火墙规则..."
     case $FIREWALL_MANAGER in
-        "firewalld") firewall-cmd --reload ;;
-        "ufw") ufw reload ;;
+        "firewalld") firewall-cmd --reload >/dev/null ;;
+        "ufw") ufw reload >/dev/null ;;
         "iptables")
              if command -v netfilter-persistent &> /dev/null; then netfilter-persistent save >/dev/null;
-             elif command -v service &>/dev/null && service iptables save &>/dev/null; then : # RHEL 6
+             elif command -v service &>/dev/null && service iptables save &>/dev/null; then :
              else 
-                command -v iptables-save > /etc/iptables/rules.v4
-                command -v ip6tables-save > /etc/iptables/rules.v6
+                iptables-save > /etc/iptables/rules.v4 2>/dev/null
+                ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
              fi
              ;;
     esac
@@ -233,7 +221,8 @@ delete_single_mapping() {
 delete_all_mappings() {
     local mappings; readarray -t mappings <<< "$(read_all_mappings)"
     [[ ${#mappings[@]} -eq 0 || -z "${mappings[0]}" ]] && { printmsg $YELLOW "没有配置需要删除。"; return; }
-    printmsg $YELLOW "正在删除所有已配置的端口映射..."; for mapping in "${mappings[@]}"; do delete_single_mapping $mapping; done
+    printmsg $YELLOW "正在删除所有已配置的端口映射..."; log_action "Deleting all mappings"
+    for mapping in "${mappings[@]}"; do delete_single_mapping $mapping; done
     > "$CONFIGFILE"; fw_apply_changes
 }
 
@@ -260,6 +249,7 @@ add_mapping_menu() {
         case $choice in 1) protocol="ipv4";; 2) protocol="ipv6";; *) protocol="all";; esac
     fi
     if add_single_mapping "$protocol" "$service_port" "$start_port" "$end_port"; then
+        log_action "Added mapping: $protocol $service_port $start_port-$end_port"
         printmsg $GREEN "映射已配置，正在应用更改..."; fw_apply_changes
     else printmsg $RED "映射添加失败。"; fi
     read -p "按Enter键继续..."
@@ -285,6 +275,7 @@ delete_mapping_menu() {
                     local sel_map="${mappings[$((choice-1))]}"; read proto svc_port start_port end_port <<< "$sel_map"
                     read -p "$(printmsg $YELLOW "确认删除: [$proto] $start_port-$end_port -> $svc_port? [y/N]: ")" confirm
                     if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                        log_action "Deleting mapping: $proto $svc_port $start_port-$end_port"
                         delete_single_mapping "$proto" "$svc_port" "$start_port" "$end_port" && fw_apply_changes
                     fi
                 else printmsg $RED "无效选择"; fi; read -p "按Enter键继续..." ;;
@@ -305,14 +296,15 @@ showstatus() {
 uninstall() {
     read -p "$(printmsg $RED '警告: 此操作将删除所有映射规则并移除脚本! 确定吗? [y/N]: ')" confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then printmsg $YELLOW "卸载已取消。"; return; fi
-    printmsg $YELLOW "正在卸载..."; delete_all_mappings
-    printmsg $YELLOW "正在删除配置文件和日志目录..."; rm -rf "$CONFIG_DIR"
+    printmsg $YELLOW "正在卸载..."; log_action "Uninstalling..."
+    delete_all_mappings
+    printmsg $YELLOW "正在删除配置文件和日志目录..."; rm -rf "$CONFIGDIR"
     printmsg $YELLOW "正在删除脚本: $(command -v "$0")"; rm -f "$(command -v "$0")"
     printmsg $GREEN "卸载完成。"
 }
 showmenu() {
     while true; do
-        clear; echo "VPN端口映射工具 v$VERSION"; printmsg $BLUE "=============================================="
+        clear; echo "端口映射工具 v$VERSION"; printmsg $BLUE "=============================================="
         printmsg $YELLOW "防火墙管理器: $FIREWALL_MANAGER"
         printmsg $GREEN "  1. 添加端口映射"; printmsg $YELLOW "  2. 管理/删除端口映射"
         printmsg $CYAN "  3. 查看当前映射状态"; printmsg $RED "  4. 卸载工具"; printmsg $NC "  0. 退出"
@@ -329,11 +321,12 @@ main() {
     checkroot
     mkdir -p "$CONFIGDIR"
     detect_firewall_manager
+    log_action "Script started, detected firewall: $FIREWALL_MANAGER"
     showmenu
+    log_action "Script exited."
 }
 
 main "$@"
-
 EOF
     # EOF 之前不能有任何空格
 
@@ -346,11 +339,11 @@ main() {
     check_root
     
     if [ -f "$INSTALL_PATH" ]; then
-        printmsg "检测到已安装版本。如果需要重新安装，请先运行 'sudo vpn-port-map' 并选择卸载。" "$YELLOW"
+        printmsg "检测到已安装版本。如果需要重新安装，请先运行 'sudo $(basename $INSTALL_PATH)' 并选择卸载。" "$YELLOW"
         exit 0
     fi
 
-    printmsg "欢迎使用 VPN 端口映射工具安装程序" "$GREEN"
+    printmsg "欢迎使用 端口映射工具 安装程序" "$GREEN"
     detect_os
     install_dependencies
     create_main_script
@@ -360,7 +353,7 @@ main() {
     printmsg "==================================================" "$GREEN"
     printmsg "现在您可以通过运行以下命令来使用此工具:" "$NC"
     echo
-    printmsg "    sudo vpn-port-map" "$YELLOW"
+    printmsg "    sudo portmap" "$YELLOW"
     echo
 }
 
