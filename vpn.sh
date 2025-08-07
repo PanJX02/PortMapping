@@ -1,11 +1,11 @@
 #!/bin/bash
 # VPN端口映射工具 (支持 IPv4 & IPv6 + 多种防火墙)
 # 作者: PanJX02 
-# 版本: 2.1.0
+# 版本: 2.2.0
 # 日期: 2025-08-07
 
 # --- 配置信息 ---
-VERSION="2.1.0"
+VERSION="2.2.0"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/etc/vpn"
 SCRIPTNAME="vpn.sh"
