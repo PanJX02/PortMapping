@@ -85,10 +85,10 @@ cat > "$INSTALL_PATH" <<'EOF'
 #!/bin/bash
 # 端口映射工具 (支持 IPv4 & IPv6, 适配 UFW/Firewalld/iptables)
 # 作者: PanJX02 & AI Assistant
-# 版本: 3.2.0 (由安装程序生成)
+# 版本: 3.1.0 (由安装程序生成)
 
 # --- 配置信息 ---
-VERSION="3.2.0"
+VERSION="3.1.0"
 CONFIGDIR="/etc/portmap"
 CONFIGFILE="$CONFIGDIR/rules.conf"
 LOGFILE="$CONFIGDIR/activity.log"
