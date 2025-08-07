@@ -1,358 +1,205 @@
 #!/bin/bash
+# VPN端口映射工具安装脚本 (v2.0 - 优化版)
+# 作者: PanJX02 (由 AI 协助优化)
+# 版本: 2.0.0
+# 日期: 2025-08-03
+# 描述: 此版本增加了防火墙冲突检测，并全面支持IPv4/IPv6依赖安装。
 
-# VPN端口映射工具安装脚本
-# 作者: PanJX02
-# 版本: 1.3.0
-# 日期: 2025-08-01
-
-# 设置错误处理
 set -e
-trap 'echo "安装过程中出现错误，退出安装"; exit 1' ERR
+trap 'echo -e "\n${RED}安装过程中出现错误，已终止安装。${NC}"; exit 1' ERR
 
-# 检查是否为更新模式
-if [[ "$1" == "--self-update" ]]; then
-    echo "正在更新安装脚本..."
-    exit 0
-fi
-
-# 脚本URL (修复：移除末尾空格)
-SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
+# --- 配置 ---
+SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh" # 应指向支持IPv6的新版脚本
 INSTALL_DIR="/etc/vpn"
 SCRIPT_NAME="vpn.sh"
-CONFIG_DIR="/etc/vpn"
-CONFIG_FILE="$CONFIG_DIR/portforward.conf"
 LOG_DIR="/etc/vpn/log"
-LOG_FILE="$LOG_DIR/install.log"
-VERSION="1.3.0"
-SYMLINK_PATH="/usr/local/bin/vpn" # 添加软链接路径
+SYMLINK_PATH="/usr/local/bin/vpn"
 
-# 颜色定义
+# --- 颜色定义 ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# 打印带颜色的消息
+# --- 函数 ---
 print_msg() {
     local color=$1
     local message=$2
-    echo -e "${color}[$(date '+%Y-%m-%d %H:%M:%S')] ${message}${NC}"
+    echo -e "${color}[$(date '+%H:%M:%S')] ${message}${NC}"
 }
 
-# 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        print_msg $RED "错误: 此脚本必须以root权限运行"
-        print_msg $YELLOW "请使用: sudo $0"
+        print_msg $RED "错误: 此脚本必须以root权限运行。请尝试: sudo bash $0"
         exit 1
     fi
-    print_msg $GREEN "Root权限检查通过"
 }
 
-# 检查网络连接
 check_network() {
     print_msg $YELLOW "正在检查网络连接..."
-    if ! ping -c 1 github.com &> /dev/null && ! ping -c 1 8.8.8.8 &> /dev/null; then
-        print_msg $RED "错误: 无法连接到互联网，请检查网络设置"
+    if ! ping -c 1 -W 3 github.com &> /dev/null; then
+        print_msg $RED "错误: 无法连接到 GitHub.com，请检查您的网络设置和DNS。"
         exit 1
     fi
-    print_msg $GREEN "网络连接正常"
+    print_msg $GREEN "网络连接正常。"
 }
 
-# 检测系统类型
 detect_os() {
+    print_msg $YELLOW "正在检测操作系统..."
     if [[ -f /etc/debian_version ]]; then
         OS="debian"
         PACKAGE_MANAGER="apt-get"
-        PERSISTENT_PKG="iptables-persistent"
+        PERSISTENT_PKG_V4="iptables-persistent"
+        PERSISTENT_PKG_V6="iptables-persistent" # 在Debian系中，同一个包管理v4和v6
     elif [[ -f /etc/redhat-release ]]; then
         OS="redhat"
-        PACKAGE_MANAGER="yum" # 或 dnf，但 yum 通常向后兼容
-        PERSISTENT_PKG="iptables-services"
-    elif [[ -f /etc/arch-release ]]; then
-        OS="arch"
-        PACKAGE_MANAGER="pacman"
-        PERSISTENT_PKG="iptables"
+        PACKAGE_MANAGER="yum"
+        # CentOS/RHEL 7+ 使用不同的服务包
+        PERSISTENT_PKG_V4="iptables-services"
+        PERSISTENT_PKG_V6="iptables-services" # ip6tables 服务也由这个包提供
     else
-        print_msg $RED "错误: 不支持的操作系统"
+        print_msg $RED "错误: 不支持的操作系统。此脚本仅支持 Debian/Ubuntu 和 RHEL/CentOS 系列。"
         exit 1
     fi
-    print_msg $GREEN "检测到系统类型: $OS"
+    print_msg $GREEN "检测到系统: $OS"
 }
 
-# 安装依赖
+# 关键优化：检查防火墙冲突
+check_firewall_conflict() {
+    print_msg $YELLOW "正在检查现有防火墙..."
+    local conflict=0
+    if command -v ufw &>/dev/null && [[ "$(ufw status)" != "Status: inactive" ]]; then
+        print_msg $RED "检测到 UFW (Uncomplicated Firewall) 正在运行！"
+        conflict=1
+    fi
+    if systemctl is-active --quiet firewalld; then
+        print_msg $RED "检测到 Firewalld 正在运行！"
+        conflict=1
+    fi
+
+    if [[ "$conflict" -eq 1 ]]; then
+        echo
+        print_msg $RED "========================== 严重警告 =========================="
+        print_msg $YELLOW "此脚本通过直接管理 iptables 和 ip6tables 工作。"
+        print_msg $YELLOW "同时使用 UFW 或 Firewalld 会导致规则冲突，可能使您的服务器网络中断！"
+        print_msg $YELLOW "在继续之前，您必须手动禁用当前的防火墙。"
+        echo
+        print_msg $BLUE "Debian/Ubuntu 用户请运行: sudo ufw disable"
+        print_msg $BLUE "CentOS/RHEL 用户请运行: sudo systemctl stop firewalld && sudo systemctl disable firewalld"
+        echo
+        print_msg $RED "安装已终止。请在禁用冲突的防火墙后重新运行此脚本。"
+        exit 1
+    fi
+    print_msg $GREEN "未发现活动的 UFW 或 Firewalld，检查通过。"
+}
+
 install_dependencies() {
-    print_msg $YELLOW "正在安装依赖包..."
-
-    # 更新包列表
+    print_msg $YELLOW "正在安装依赖: wget, iptables, 和持久化服务..."
     case $OS in
         debian)
             $PACKAGE_MANAGER update -y
+            # 预设 debconf 选项，避免 iptables-persistent 安装时卡住提问
+            echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+            echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+            $PACKAGE_MANAGER install -y wget iptables "$PERSISTENT_PKG_V4"
             ;;
         redhat)
-            $PACKAGE_MANAGER update -y
-            ;;
-        arch)
-            $PACKAGE_MANAGER -Sy
+            $PACKAGE_MANAGER install -y wget "$PERSISTENT_PKG_V4"
             ;;
     esac
-
-    # 安装必要包
-    case $OS in
-        debian)
-            $PACKAGE_MANAGER install -y wget iptables $PERSISTENT_PKG
-            ;;
-        redhat)
-            $PACKAGE_MANAGER install -y wget iptables $PERSISTENT_PKG
-            ;;
-        arch)
-            $PACKAGE_MANAGER -S --noconfirm wget iptables
-            ;;
-    esac
-
-    if [[ $? -eq 0 ]]; then
-        print_msg $GREEN "依赖安装成功"
-    else
-        print_msg $RED "依赖安装失败"
-        exit 1
-    fi
+    print_msg $GREEN "依赖安装成功。"
 }
 
-# 下载主脚本
 download_script() {
-    print_msg $YELLOW "正在下载VPN脚本..."
-
-    # 创建安装目录
+    print_msg $YELLOW "正在下载主脚本..."
     mkdir -p "$INSTALL_DIR"
-
-    # 下载脚本 (修复：使用正确的 URL 和文件名)
-    if wget -N -O "$INSTALL_DIR/$SCRIPT_NAME" "$SCRIPT_URL"; then
+    if wget -O "$INSTALL_DIR/$SCRIPT_NAME" "$SCRIPT_URL"; then
         chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
-        print_msg $GREEN "脚本下载成功: $INSTALL_DIR/$SCRIPT_NAME"
+        print_msg $GREEN "主脚本下载成功: $INSTALL_DIR/$SCRIPT_NAME"
     else
-        print_msg $RED "脚本下载失败"
+        print_msg $RED "主脚本下载失败，请检查网络或URL是否正确。"
         exit 1
     fi
 }
 
-# 创建软链接以便直接使用 'vpn' 命令
 create_symlink() {
-    print_msg $YELLOW "正在创建软链接 $SYMLINK_PATH..."
-    # 如果软链接已存在，先删除它
-    if [[ -L "$SYMLINK_PATH" ]]; then
-        rm -f "$SYMLINK_PATH"
-        print_msg $BLUE "已删除旧的软链接 $SYMLINK_PATH"
-    fi
-    # 如果目标位置是文件或目录，发出警告但不覆盖
-    if [[ -e "$SYMLINK_PATH" ]]; then
-        print_msg $RED "警告: $SYMLINK_PATH 已存在且不是软链接，无法创建软链接。请手动删除或移动该文件/目录。"
-        print_msg $YELLOW "您仍然可以通过 $INSTALL_DIR/$SCRIPT_NAME 运行脚本。"
-        return 1 # 不算致命错误
-    fi
-
-    # 创建软链接
-    if ln -s "$INSTALL_DIR/$SCRIPT_NAME" "$SYMLINK_PATH"; then
-        print_msg $GREEN "软链接创建成功: $SYMLINK_PATH -> $INSTALL_DIR/$SCRIPT_NAME"
-        return 0
+    print_msg $YELLOW "正在创建命令软链接..."
+    # 使用 -f 强制覆盖可能存在的旧的软链接
+    if ln -sf "$INSTALL_DIR/$SCRIPT_NAME" "$SYMLINK_PATH"; then
+        print_msg $GREEN "命令 'vpn' 创建成功。现在您可以在任何路径下使用 'vpn' 命令。"
     else
-        print_msg $RED "创建软链接失败: $SYMLINK_PATH"
-        print_msg $YELLOW "您可以通过 $INSTALL_DIR/$SCRIPT_NAME 运行脚本。"
-        return 1 # 不算致命错误
+        print_msg $RED "创建软链接失败。您仍然可以通过完整路径 /etc/vpn/vpn.sh 运行。"
     fi
 }
 
-
-# 创建配置目录和文件
-create_config() {
-    print_msg $YELLOW "正在创建配置目录和文件..."
-
-    # 创建配置目录
-    mkdir -p "$CONFIG_DIR" # 使用引号
-
-    # 创建日志目录
-    mkdir -p "$LOG_DIR" # 使用引号
-    touch "$LOG_FILE" # 使用引号
-    chmod 640 "$LOG_FILE" # 使用引号
-
-    # 创建配置文件
-    # 注意：这里的 LOG_FILE 变量引用的是 install.log，但 vpn.sh 脚本里用的是 portforward.log
-    # 为了保持一致性，最好让 vpn.sh 使用 /etc/vpn/log/portforward.log
-    # 这里暂时保持原样，但建议修改 vpn.sh 中的 LOGFILE 路径
-    cat > "$CONFIG_FILE" << EOL
-# VPN端口映射配置文件
-# 此文件由VPN工具自动管理
-# 请勿手动修改
-
-# 版本信息
-VERSION="$VERSION"
-
-# 规则标记
-RULE_COMMENT="vpn_port_forward"
-
-# iptables规则保存路径
-IPTABLES_RULES="/etc/iptables/rules.v4"
-
-# 日志文件路径 (注意：这应与 vpn.sh 中的 LOGFILE 一致)
-LOG_FILE="/etc/vpn/log/portforward.log"
-
-# 上次更新时间
-LAST_UPDATE="$(date '+%Y-%m-%d %H:%M:%S')"
-EOL
-
-    print_msg $GREEN "配置文件创建成功: $CONFIG_FILE"
-    print_msg $GREEN "日志文件创建成功: $LOG_FILE"
+setup_environment() {
+    print_msg $YELLOW "正在设置配置环境..."
+    # 只创建目录，主脚本会自动初始化配置文件
+    mkdir -p "$LOG_DIR"
+    
+    # 备份现有配置（如果存在）
+    local config_file="$INSTALL_DIR/portforward.conf"
+    if [[ -f "$config_file" ]]; then
+        print_msg $YELLOW "发现现有配置文件，正在备份..."
+        mv "$config_file" "${config_file}.backup.$(date +%Y%m%d_%H%M%S)"
+        print_msg $GREEN "旧配置文件已备份。"
+    fi
+    
+    print_msg $GREEN "环境设置完成。"
 }
 
-# 启用持久化服务
 enable_persistence() {
-    print_msg $YELLOW "正在启用iptables持久化..."
-
+    print_msg $YELLOW "正在启用 iptables & ip6tables 持久化服务..."
+    # 确保iptables规则在重启后生效
     case $OS in
         debian)
-            # Debian/Ubuntu 通常使用 netfilter-persistent
-            if systemctl is-enabled netfilter-persistent &>/dev/null; then
-                 print_msg $BLUE "netfilter-persistent 已启用"
-            else
-                systemctl enable netfilter-persistent
-            fi
-            systemctl start netfilter-persistent
+            systemctl enable netfilter-persistent
+            systemctl restart netfilter-persistent
             ;;
         redhat)
-            # RHEL/CentOS/Fedora 使用 iptables-services
-            if systemctl is-enabled iptables &>/dev/null; then
-                 print_msg $BLUE "iptables 服务已启用"
-            else
-                systemctl enable iptables
-            fi
+            systemctl enable iptables
+            systemctl enable ip6tables
             systemctl start iptables
-            ;;
-        arch)
-            # Arch Linux 使用 iptables 服务
-            if systemctl is-enabled iptables &>/dev/null; then
-                 print_msg $BLUE "iptables 服务已启用"
-            else
-                systemctl enable iptables
-            fi
-            systemctl start iptables
+            systemctl start ip6tables
             ;;
     esac
-
-    # 检查服务状态
-    local service_status=1
-    case $OS in
-        debian)
-            systemctl is-active --quiet netfilter-persistent && service_status=0
-            ;;
-        redhat|arch)
-            systemctl is-active --quiet iptables && service_status=0
-            ;;
-    esac
-
-    if [[ $service_status -eq 0 ]]; then
-        print_msg $GREEN "iptables持久化已启用并正在运行"
-    else
-        print_msg $RED "启用或启动iptables持久化服务失败"
-        # 不退出，因为用户可能手动处理或系统不同
-    fi
+    print_msg $GREEN "持久化服务已启用。"
 }
 
-
-# 显示安装完成信息
 show_completion() {
-    print_msg $GREEN "=========================================="
-    print_msg $GREEN "VPN端口映射工具安装完成!"
-    print_msg $GREEN "=========================================="
     echo
-    print_msg $YELLOW "使用方法:"
-    echo "  vpn (推荐)                           # 交互式菜单 (通过软链接)"
-    echo "  /etc/vpn/vpn.sh                      # 交互式菜单 (完整路径)"
-    echo "  vpn <服务端口> <起始端口> <结束端口> # 直接指定端口"
-    echo "  vpn off                              # 取消映射"
-    echo "  vpn status                           # 查看状态"
-    echo "  vpn update                           # 检查更新"
-    echo "  vpn version                          # 显示版本"
-    echo "  vpn help                             # 显示帮助"
-    echo ""
-    print_msg $BLUE "更新安装脚本:"
-    echo "  wget -N https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh && sudo bash install.sh"
+    print_msg $GREEN "====================================================="
+    print_msg $GREEN "  VPN端口映射工具 (v2.0) 安装成功!  "
+    print_msg $GREEN "====================================================="
     echo
-    print_msg $YELLOW "示例:"
-    echo "  sudo vpn                     # 交互式输入 (推荐)"
-    echo "  sudo vpn 8080 10000 20000    # 将外部10000-20000端口映射到内部8080端口"
-    echo "  sudo vpn off                 # 取消映射"
+    print_msg $YELLOW "您现在可以使用 'vpn' 命令来管理端口映射:"
+    echo -e "  ${BLUE}sudo vpn${NC}              - 进入交互式菜单 (推荐)"
+    echo -e "  ${BLUE}sudo vpn status${NC}       - 查看当前映射状态"
+    echo -e "  ${BLUE}sudo vpn help${NC}         - 获取帮助和查看更多命令"
+    echo
+    print_msg $YELLOW "要添加一个映射，可以运行:"
+    echo -e "  ${CYAN}sudo vpn ipv4 8080 10000 20000${NC}   (仅IPv4)"
+    echo -e "  ${CYAN}sudo vpn ipv6 8080 10000 20000${NC}   (仅IPv6)"
+    echo -e "  ${CYAN}sudo vpn all  8080 10000 20000${NC}   (同时用于IPv4和IPv6)"
     echo
     print_msg $BLUE "项目地址: https://github.com/PanJX02/PortMapping"
     echo
-    print_msg $BLUE "注意: 请确保 /usr/local/bin 在您的 PATH 环境变量中。"
-    print_msg $BLUE "      您可以通过运行 'echo \$PATH' 来检查。"
 }
 
-
-# 创建定时任务 (如果 vpn.sh 支持 --cron 参数)
-# 注意：根据您提供的 vpn.sh 内容，它似乎不支持 update --cron。
-# 如果您希望保留此功能，请确保 vpn.sh 实现了相应的逻辑。
-# 否则，可以考虑移除此部分或修改为调用检查更新的命令。
-create_cron_job() {
-    print_msg $YELLOW "正在设置自动更新检查..."
-    # 假设 vpn.sh 有一个 update 命令可以静默运行或记录日志
-    # 这里我们尝试设置一个每周日 midnight 运行的 cron job
-    # 它会调用脚本的 update 功能，并将输出重定向到日志
-
-    # 检查 crontab 是否可用
-    if command -v crontab &> /dev/null; then
-        # 获取当前用户的 crontab 内容 (安装脚本以 root 运行，所以是 root 的 crontab)
-        local current_crontab=$(crontab -l 2>/dev/null || echo "")
-
-        # 检查是否已存在相同的任务
-        if echo "$current_crontab" | grep -qF "$INSTALL_DIR/$SCRIPT_NAME update"; then
-            print_msg $BLUE "自动更新任务已存在，跳过创建。"
-        else
-            # 创建新的 crontab 条目
-            # 使用 here document 追加新任务
-            { echo "$current_crontab"; echo "# VPN Port Mapping Tool Auto-Update (每周日凌晨1点)"; echo "0 1 * * 0 $INSTALL_DIR/$SCRIPT_NAME update >> $LOG_DIR/cron_update.log 2>&1"; } | crontab -
-            print_msg $GREEN "自动更新检查已设置为每周日凌晨1点执行 (日志: $LOG_DIR/cron_update.log)"
-        fi
-    else
-        print_msg $YELLOW "系统未安装 crontab，跳过定时任务设置"
-    fi
-}
-
-
-# 备份现有配置
-backup_config() {
-    if [[ -f "$CONFIG_FILE" ]]; then # 使用引号
-        print_msg $YELLOW "发现现有配置，正在备份..."
-        local backup_name="${CONFIG_FILE}.backup.$(date +%Y%m%d%H%M%S)"
-        cp "$CONFIG_FILE" "$backup_name" # 使用引号
-        print_msg $GREEN "配置备份完成: $backup_name"
-    fi
-}
-
-# 主安装流程
+# --- 主流程 ---
 main() {
-    print_msg $GREEN "开始安装VPN端口映射工具..."
-    print_msg $BLUE "版本: $VERSION"
-
     check_root
     check_network
     detect_os
-    backup_config
+    check_firewall_conflict # 关键步骤
     install_dependencies
     download_script
-    create_config
-    # 尝试创建软链接
-    local symlink_created=false
-    if create_symlink; then
-        symlink_created=true
-    fi
+    create_symlink
+    setup_environment
     enable_persistence
-    # create_cron_job # 根据 vpn.sh 实际功能决定是否启用
     show_completion
-
-    # 记录安装日志
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] VPN端口映射工具 v$VERSION 安装成功" >> "$LOG_FILE" # 使用引号
 }
 
-# 执行主流程
-main "$@" # 传递参数给 main 函数
+main "$@"
+
