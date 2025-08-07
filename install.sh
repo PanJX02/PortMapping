@@ -20,6 +20,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # --- 函数 ---
@@ -65,33 +66,52 @@ detect_os() {
     print_msg $GREEN "检测到系统: $OS"
 }
 
-# 关键优化：检查防火墙冲突
+# 修改后的防火墙检查函数 - 改为提示而不是强制退出
 check_firewall_conflict() {
     print_msg $YELLOW "正在检查现有防火墙..."
     local conflict=0
+    local firewall_list=""
+    
     if command -v ufw &>/dev/null && [[ "$(ufw status)" != "Status: inactive" ]]; then
-        print_msg $RED "检测到 UFW (Uncomplicated Firewall) 正在运行！"
+        print_msg $YELLOW "检测到 UFW (Uncomplicated Firewall) 正在运行。"
         conflict=1
+        firewall_list="${firewall_list}UFW "
     fi
+    
     if systemctl is-active --quiet firewalld; then
-        print_msg $RED "检测到 Firewalld 正在运行！"
+        print_msg $YELLOW "检测到 Firewalld 正在运行。"
         conflict=1
+        firewall_list="${firewall_list}Firewalld "
     fi
 
     if [[ "$conflict" -eq 1 ]]; then
         echo
-        print_msg $RED "========================== 严重警告 =========================="
+        print_msg $YELLOW "========================== 重要提示 =========================="
+        print_msg $CYAN "检测到以下防火墙正在运行: ${firewall_list}"
         print_msg $YELLOW "此脚本通过直接管理 iptables 和 ip6tables 工作。"
-        print_msg $YELLOW "同时使用 UFW 或 Firewalld 会导致规则冲突，可能使您的服务器网络中断！"
-        print_msg $YELLOW "在继续之前，您必须手动禁用当前的防火墙。"
+        print_msg $YELLOW "同时使用多个防火墙可能会导致规则冲突。"
         echo
-        print_msg $BLUE "Debian/Ubuntu 用户请运行: sudo ufw disable"
-        print_msg $BLUE "CentOS/RHEL 用户请运行: sudo systemctl stop firewalld && sudo systemctl disable firewalld"
+        print_msg $BLUE "建议操作:"
+        print_msg $BLUE "• Debian/Ubuntu 用户: sudo ufw disable"
+        print_msg $BLUE "• CentOS/RHEL 用户: sudo systemctl stop firewalld && sudo systemctl disable firewalld"
         echo
-        print_msg $RED "安装已终止。请在禁用冲突的防火墙后重新运行此脚本。"
-        exit 1
+        print_msg $YELLOW "您可以选择:"
+        print_msg $YELLOW "1. 现在退出，禁用防火墙后重新运行"
+        print_msg $YELLOW "2. 继续安装（需要您自行处理可能的冲突）"
+        echo
+        
+        # 添加用户选择
+        read -p "是否继续安装？(y/N): " -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_msg $BLUE "安装已取消。请在处理防火墙后重新运行此脚本。"
+            exit 0
+        fi
+        
+        print_msg $GREEN "用户选择继续安装。"
+    else
+        print_msg $GREEN "未发现活动的 UFW 或 Firewalld。"
     fi
-    print_msg $GREEN "未发现活动的 UFW 或 Firewalld，检查通过。"
 }
 
 install_dependencies() {
@@ -192,7 +212,7 @@ main() {
     check_root
     check_network
     detect_os
-    check_firewall_conflict # 关键步骤
+    check_firewall_conflict # 修改后的检查函数
     install_dependencies
     download_script
     create_symlink
@@ -202,4 +222,3 @@ main() {
 }
 
 main "$@"
-
