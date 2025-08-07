@@ -1,19 +1,21 @@
 #!/bin/bash
-# VPN端口映射工具安装脚本 (v2.0 - 优化版)
+# VPN端口映射工具安装脚本 (v2.1 - 自我更新优化版)
 # 作者: PanJX02 (由 AI 协助优化)
-# 版本: 2.0.0
-# 日期: 2025-08-03
-# 描述: 此版本增加了防火墙冲突检测，并全面支持IPv4/IPv6依赖安装。
+# 版本: 2.1.0
+# 日期: 2025-08-07
+# 描述: 此版本增加了自我更新功能，智能防火墙检测，并全面支持IPv4/IPv6依赖安装。
 
 set -e
 trap 'echo -e "\n${RED}安装过程中出现错误，已终止安装。${NC}"; exit 1' ERR
 
 # --- 配置 ---
 SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh" # 应指向支持IPv6的新版脚本
+INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/install.sh"
 INSTALL_DIR="/etc/vpn"
 SCRIPT_NAME="vpn.sh"
 LOG_DIR="/etc/vpn/log"
 SYMLINK_PATH="/usr/local/bin/vpn"
+CURRENT_SCRIPT="$(readlink -f "$0")"
 
 # --- 颜色定义 ---
 RED='\033[0;31m'
@@ -28,6 +30,39 @@ print_msg() {
     local color=$1
     local message=$2
     echo -e "${color}[$(date '+%H:%M:%S')] ${message}${NC}"
+}
+
+check_and_update_self() {
+    # 检查是否需要自我更新
+    if [[ "$INSTALL_DIR/$SCRIPT_NAME" -ef "$CURRENT_SCRIPT" ]]; then
+        # 如果当前脚本就是已安装的脚本，跳过自我更新
+        return 0
+    fi
+    
+    # 检查是否已经安装且需要更新
+    if [[ -f "$INSTALL_DIR/install.sh" ]]; then
+        print_msg $YELLOW "检测到已安装的版本，正在检查是否需要更新..."
+        
+        # 下载最新的安装脚本到临时文件
+        local temp_script="/tmp/install_new_$.sh"
+        if wget -q -O "$temp_script" "$INSTALL_SCRIPT_URL" 2>/dev/null; then
+            # 比较版本号（简单的文件大小和修改时间比较）
+            if ! cmp -s "$temp_script" "$INSTALL_DIR/install.sh" 2>/dev/null; then
+                print_msg $GREEN "发现新版本安装脚本，正在更新..."
+                cp "$temp_script" "$INSTALL_DIR/install.sh"
+                chmod +x "$INSTALL_DIR/install.sh"
+                print_msg $GREEN "安装脚本已更新到最新版本。"
+                
+                # 如果当前运行的不是最新版本，重新执行新版本
+                if ! cmp -s "$temp_script" "$CURRENT_SCRIPT" 2>/dev/null; then
+                    print_msg $BLUE "重新启动新版本安装脚本..."
+                    rm -f "$temp_script"
+                    exec "$INSTALL_DIR/install.sh" "$@"
+                fi
+            fi
+            rm -f "$temp_script"
+        fi
+    fi
 }
 
 check_root() {
@@ -154,6 +189,12 @@ download_script() {
         print_msg $RED "主脚本下载失败，请检查网络或URL是否正确。"
         exit 1
     fi
+    
+    # 保存当前安装脚本到安装目录
+    print_msg $YELLOW "正在保存安装脚本..."
+    cp "$CURRENT_SCRIPT" "$INSTALL_DIR/install.sh"
+    chmod +x "$INSTALL_DIR/install.sh"
+    print_msg $GREEN "安装脚本已保存。"
 }
 
 create_symlink() {
@@ -235,6 +276,7 @@ show_completion() {
 # --- 主流程 ---
 main() {
     check_root
+    check_and_update_self "$@"  # 新增：自我更新检查
     check_network
     detect_os
     check_firewall_conflict # 修改后的检查函数
