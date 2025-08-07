@@ -1,11 +1,11 @@
 #!/bin/bash
 # VPN端口映射工具 (支持 IPv4 & IPv6 + 多种防火墙)
 # 作者: PanJX02 
-# 版本: 2.2.0
+# 版本: 2.2.1
 # 日期: 2025-08-07
 
 # --- 配置信息 ---
-VERSION="2.2.0"
+VERSION="2.2.1"
 SCRIPTURL="https://raw.githubusercontent.com/PanJX02/PortMapping/refs/heads/main/vpn.sh"
 INSTALLDIR="/etc/vpn"
 SCRIPTNAME="vpn.sh"
@@ -195,41 +195,60 @@ add_ufw_mapping() {
     return $((1-added))
 }
 
-# UFW 删除端口映射规则 (优化版)
+# UFW 删除端口映射规则 (改进版 - 与添加方式对应)
 delete_ufw_mapping() {
     local protocol=$1
     local service_port=$2
     local start_port=$3
     local end_port=$4
     
-    # 删除IPv4规则
+    local deleted=0
+    
+    printmsg $YELLOW "UFW 模式: 使用底层 iptables 规则删除映射..."
+    
+    # 删除IPv4规则 - 使用规则ID精确删除
     if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
         local rule_id_v4=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
         local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$rule_id_v4" | awk '{print $1}' | sort -rn)
         if [[ -n "$rules_v4" ]]; then
             while read -r rule; do 
-                iptables -t nat -D PREROUTING "$rule"
+                if [[ -n "$rule" ]]; then
+                    iptables -t nat -D PREROUTING "$rule"
+                fi
             done <<< "$rules_v4"
             printmsg $GREEN "UFW+iptables IPv4 映射已删除: $start_port-$end_port -> $service_port"
             log_action "Deleted UFW+iptables IPv4 mapping: $start_port-$end_port -> $service_port"
+            deleted=1
+        else
+            printmsg $YELLOW "未找到对应的 IPv4 iptables 规则: $rule_id_v4"
         fi
     fi
     
-    # 删除IPv6规则
+    # 删除IPv6规则 - 使用规则ID精确删除
     if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
         local rule_id_v6=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
         local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$rule_id_v6" | awk '{print $1}' | sort -rn)
         if [[ -n "$rules_v6" ]]; then
             while read -r rule; do 
-                ip6tables -t nat -D PREROUTING "$rule"
+                if [[ -n "$rule" ]]; then
+                    ip6tables -t nat -D PREROUTING "$rule"
+                fi
             done <<< "$rules_v6"
             printmsg $GREEN "UFW+ip6tables IPv6 映射已删除: $start_port-$end_port -> $service_port"
             log_action "Deleted UFW+ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
+            deleted=1
+        else
+            printmsg $YELLOW "未找到对应的 IPv6 ip6tables 规则: $rule_id_v6"
         fi
     fi
     
     # 清理持久化配置
-    create_ufw_persistent_rules "$protocol" "$service_port" "$start_port" "$end_port" "delete"
+    if [[ "$deleted" -eq 1 ]]; then
+        create_ufw_persistent_rules "$protocol" "$service_port" "$start_port" "$end_port" "delete"
+        printmsg $BLUE "已从持久化配置文件中移除对应规则"
+    fi
+    
+    return $((1-deleted))
 }
 
 # UFW 持久化规则管理
@@ -348,6 +367,38 @@ add_firewalld_mapping() {
     return $((1-added))
 }
 
+# Firewalld 删除端口映射规则
+delete_firewalld_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+    
+    # 删除IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        else
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        fi
+        printmsg $GREEN "Firewalld IPv4 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted Firewalld IPv4 mapping: $start_port-$end_port -> $service_port"
+    fi
+    
+    # 删除IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        if [[ "$start_port" == "$end_port" ]]; then
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        else
+            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
+        fi
+        printmsg $GREEN "Firewalld IPv6 映射已删除: $start_port-$end_port -> $service_port"
+        log_action "Deleted Firewalld IPv6 mapping: $start_port-$end_port -> $service_port"
+    fi
+    
+    firewall-cmd --reload
+}
+
 # iptables 添加端口映射规则 (保留原有功能)
 add_iptables_mapping() {
     local protocol=$1
@@ -379,6 +430,36 @@ add_iptables_mapping() {
     fi
 
     return $((1-added))
+}
+
+# iptables 删除端口映射规则 (保留原有功能)
+delete_iptables_mapping() {
+    local protocol=$1
+    local service_port=$2
+    local start_port=$3
+    local end_port=$4
+
+    # 删除IPv4规则
+    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
+        local rule_id_v4=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
+        local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$rule_id_v4" | awk '{print $1}' | sort -rn)
+        if [[ -n "$rules_v4" ]]; then
+            while read -r rule; do iptables -t nat -D PREROUTING "$rule"; done <<< "$rules_v4"
+            printmsg $GREEN "iptables IPv4 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted iptables IPv4 mapping: $start_port-$end_port -> $service_port"
+        fi
+    fi
+
+    # 删除IPv6规则
+    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
+        local rule_id_v6=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
+        local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$rule_id_v6" | awk '{print $1}' | sort -rn)
+        if [[ -n "$rules_v6" ]]; then
+            while read -r rule; do ip6tables -t nat -D PREROUTING "$rule"; done <<< "$rules_v6"
+            printmsg $GREEN "ip6tables IPv6 映射已删除: $start_port-$end_port -> $service_port"
+            log_action "Deleted ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
+        fi
+    fi
 }
 
 # 统一添加端口映射接口
@@ -423,93 +504,6 @@ add_single_mapping() {
         return 0
     else
         return 1
-    fi
-}
-
-# UFW 删除端口映射规则
-delete_ufw_mapping() {
-    local protocol=$1
-    local service_port=$2
-    local start_port=$3
-    local end_port=$4
-    
-    # 删除IPv4和IPv6规则
-    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
-        for port in $(seq "$start_port" "$end_port"); do
-            ufw --force delete route allow in on any out on any to any port "$service_port" from any port "$port" proto udp 2>/dev/null || true
-        done
-        printmsg $GREEN "UFW IPv4 映射已删除: $start_port-$end_port -> $service_port"
-        log_action "Deleted UFW IPv4 mapping: $start_port-$end_port -> $service_port"
-    fi
-    
-    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-        for port in $(seq "$start_port" "$end_port"); do
-            ufw --force delete route allow in on any out on any to any port "$service_port" from any port "$port" proto udp 2>/dev/null || true
-        done
-        printmsg $GREEN "UFW IPv6 映射已删除: $start_port-$end_port -> $service_port"
-        log_action "Deleted UFW IPv6 mapping: $start_port-$end_port -> $service_port"
-    fi
-}
-
-# Firewalld 删除端口映射规则
-delete_firewalld_mapping() {
-    local protocol=$1
-    local service_port=$2
-    local start_port=$3
-    local end_port=$4
-    
-    # 删除IPv4规则
-    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
-        if [[ "$start_port" == "$end_port" ]]; then
-            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
-        else
-            firewall-cmd --permanent --remove-rich-rule="rule family='ipv4' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
-        fi
-        printmsg $GREEN "Firewalld IPv4 映射已删除: $start_port-$end_port -> $service_port"
-        log_action "Deleted Firewalld IPv4 mapping: $start_port-$end_port -> $service_port"
-    fi
-    
-    # 删除IPv6规则
-    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-        if [[ "$start_port" == "$end_port" ]]; then
-            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
-        else
-            firewall-cmd --permanent --remove-rich-rule="rule family='ipv6' forward-port port='$start_port-$end_port' protocol='udp' to-port='$service_port'" 2>/dev/null || true
-        fi
-        printmsg $GREEN "Firewalld IPv6 映射已删除: $start_port-$end_port -> $service_port"
-        log_action "Deleted Firewalld IPv6 mapping: $start_port-$end_port -> $service_port"
-    fi
-    
-    firewall-cmd --reload
-}
-
-# iptables 删除端口映射规则 (保留原有功能)
-delete_iptables_mapping() {
-    local protocol=$1
-    local service_port=$2
-    local start_port=$3
-    local end_port=$4
-
-    # 删除IPv4规则
-    if [[ "$protocol" == "ipv4" ]] || [[ "$protocol" == "all" ]]; then
-        local rule_id_v4=$(generate_rule_id "ipv4" "$service_port" "$start_port" "$end_port")
-        local rules_v4=$(iptables -t nat -L PREROUTING --line-numbers | grep "$rule_id_v4" | awk '{print $1}' | sort -rn)
-        if [[ -n "$rules_v4" ]]; then
-            while read -r rule; do iptables -t nat -D PREROUTING "$rule"; done <<< "$rules_v4"
-            printmsg $GREEN "iptables IPv4 映射已删除: $start_port-$end_port -> $service_port"
-            log_action "Deleted iptables IPv4 mapping: $start_port-$end_port -> $service_port"
-        fi
-    fi
-
-    # 删除IPv6规则
-    if [[ "$protocol" == "ipv6" ]] || [[ "$protocol" == "all" ]]; then
-        local rule_id_v6=$(generate_rule_id "ipv6" "$service_port" "$start_port" "$end_port")
-        local rules_v6=$(ip6tables -t nat -L PREROUTING --line-numbers 2>/dev/null | grep "$rule_id_v6" | awk '{print $1}' | sort -rn)
-        if [[ -n "$rules_v6" ]]; then
-            while read -r rule; do ip6tables -t nat -D PREROUTING "$rule"; done <<< "$rules_v6"
-            printmsg $GREEN "ip6tables IPv6 映射已删除: $start_port-$end_port -> $service_port"
-            log_action "Deleted ip6tables IPv6 mapping: $start_port-$end_port -> $service_port"
-        fi
     fi
 }
 
@@ -726,6 +720,10 @@ showstatus() {
             printmsg $YELLOW "警告: 防火墙规则数量与配置不匹配，建议使用菜单重新应用规则。"
             log_action "WARNING: Rule/config mismatch. v4 ($rule_count_v4/$config_count_v4), v6 ($rule_count_v6/$config_count_v6)"
         fi
+    elif [[ "$FIREWALL_TYPE" == "ufw" ]]; then
+        local rule_count_v4=$(iptables -t nat -L PREROUTING -n 2>/dev/null | grep -c "$RULECOMMENT_PREFIX" || echo 0)
+        local rule_count_v6=$(ip6tables -t nat -L PREROUTING -n 2>/dev/null | grep -c "$RULECOMMENT_PREFIX" || echo 0)
+        printmsg $BLUE "UFW+iptables 规则: $rule_count_v4 条IPv4规则, $rule_count_v6 条IPv6规则"
     else
         printmsg $BLUE "防火墙规则由 $FIREWALL_TYPE 管理"
     fi
@@ -742,6 +740,13 @@ uninstall() {
     printmsg $YELLOW "删除配置文件和日志..."
     rm -f "$CONFIGFILE"
     rm -rf "$CONFIGDIR/log"
+    
+    # 删除UFW持久化文件
+    if [[ -f "$CONFIGDIR/ufw_custom_rules.sh" ]]; then
+        rm -f "$CONFIGDIR/ufw_custom_rules.sh"
+        printmsg $YELLOW "已删除UFW自定义规则文件"
+    fi
+    
     log_action "Removed config and log files"
 
     # 删除符号链接
